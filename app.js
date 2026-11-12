@@ -9,12 +9,15 @@ import { createCoreGeometry } from './core-geometry.js';
 import { createShapeGeometry, shapeNames } from './specimen-shapes.js';
 import { createSceneInteractions } from './scene-interactions.js';
 import { metalPresets, corrosionRate } from './metal-presets.js';
+import { createFeatherSurface, defaultFeatherSettings } from './feather-surface.js';
+import { createFeatherRenderer } from './feather-renderer.js';
 
 const $ = (id) => document.getElementById(id);
 const clamp = (x,a=0,b=1) => Math.max(a,Math.min(b,x));
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
-const state = {shape:'cube',metal:'iron',painted:true,modelAppearance:'paint',flakeFactor:1,age:0,moisture:.72,oxygen:.8,salt:.28,scale:2.4,peel:.68,relief:1,seed:7319,playing:!reducedMotion,rotate:!reducedMotion,speed:10,exploded:0};
+const state = {shape:'cube',material:'metal',featherDensity:25,metal:'iron',painted:true,modelAppearance:'paint',flakeFactor:1,age:0,moisture:.72,oxygen:.8,salt:.28,scale:2.4,peel:.68,relief:1,seed:7319,playing:!reducedMotion,rotate:!reducedMotion,speed:10,exploded:0};
 const colorKeys=['dark','burnt','orange','gold','teal','tealLight','pink','pinkLight','metal'];
+state.featherSettings={...defaultFeatherSettings};
 const currentColors={dark:'#241610',burnt:'#70371f',orange:'#b95b28',gold:'#b28a45',teal:'#53645a',tealLight:'#7d8b72',pink:'#efc51a',pinkLight:'#f7d74b',metal:'#343936'};
 let paintHold=2.6;
 
@@ -82,7 +85,9 @@ const floorY=-1.75;
 specimen.updateMatrixWorld(true);
 const physics=createFlakePhysics({floorY,cubePosition:specimen.position,cubeQuaternion:specimen.quaternion,cubeHalfExtent:1.296});
 const surface=new PeelingSurface({parent:specimen,material:coatingMat,physics,state});
-const interactions=createSceneInteractions({canvas:renderer.domElement,camera,controls,core,specimen,surface,physics,invalidate(){renderDirty=true;renderer.shadowMap.needsUpdate=true;}});
+const feathers=createFeatherSurface();
+const featherRenderer=createFeatherRenderer({renderer,feathers,shadowLight:key});
+const interactions=createSceneInteractions({canvas:renderer.domElement,camera,controls,core,specimen,surface,physics,enabled:()=>state.material!=='feathers',invalidate(){renderDirty=true;renderer.shadowMap.needsUpdate=true;}});
 
 // A lit ground receives the real fragments and their shadows. It is also the
 // plane used by the collision solver, so settled debris stays on the surface.
@@ -95,8 +100,8 @@ const shadowTexture=new THREE.CanvasTexture(shadowCanvas);
 const shadow=new THREE.Mesh(new THREE.PlaneGeometry(5.5,5.5),new THREE.MeshBasicMaterial({map:shadowTexture,transparent:true,depthWrite:false,opacity:.5}));
 shadow.rotation.x=-Math.PI/2;shadow.position.y=floorY+.002;scene.add(shadow);
 
-const models=createModelImporter({scene,uniforms,state,reducedMotion,notify:toast,
-  invalidate(){renderDirty=true;renderer.shadowMap.needsUpdate=true;},
+const models=createModelImporter({scene,uniforms,state,reducedMotion,notify:toast,featherMaterial:feathers.substrate,
+  invalidate(){if(state.material==='feathers')feathers.update();renderDirty=true;renderer.shadowMap.needsUpdate=true;},
   onActivate(name,peeling){
     $('model-paint-option').hidden=false;$('basic-paint-option').hidden=true;
     if(state.modelAppearance==='paint')state.painted=true;
@@ -104,10 +109,11 @@ const models=createModelImporter({scene,uniforms,state,reducedMotion,notify:toas
     interactions.cancel();surface.repaint();specimen.visible=false;setLayerView(0);
     $('layers-view').disabled=!peeling;
     document.querySelectorAll('[data-shape]').forEach(b=>{b.classList.remove('selected');b.setAttribute('aria-pressed','false');});
-    $('scene').setAttribute('aria-label',`${name}. Drag to orbit, scroll to zoom. Use model controls for materials and animation.`);
+    if(state.material!=='feathers')$('scene').setAttribute('aria-label',`${name}. Drag to orbit, scroll to zoom. Use model controls for materials and animation.`);
     $('horse-shape').classList.toggle('selected',models.sampleKey==='horse');
     $('horse-shape').setAttribute('aria-pressed',String(models.sampleKey==='horse'));
     $('scene').title='Drag to orbit · Scroll to zoom';
+    refreshFeathers();
   },
   onClear(){
     $('model-paint-option').hidden=true;$('basic-paint-option').hidden=false;
@@ -115,6 +121,7 @@ const models=createModelImporter({scene,uniforms,state,reducedMotion,notify:toas
     specimen.visible=true;$('layers-view').disabled=false;
     document.querySelectorAll('[data-shape]').forEach(b=>{const active=b.dataset.shape===state.shape;b.classList.toggle('selected',active);b.setAttribute('aria-pressed',String(active));});
     updateMetalFinish();
+    refreshFeathers();
   }
 });
 
@@ -141,6 +148,7 @@ function updateAgeUI(){
   uniforms.uAge.value=state.age;
 }
 function setPlaying(value){
+  if(state.material==='feathers')value=false;
   state.playing=value;
   if(!value)updateAgeUI();
   const label=value?'Pause aging':state.age>=1?'Restart aging':'Play aging';
@@ -179,8 +187,14 @@ function lightPaintColor(base){
 
 function updateMetalFinish(){
   const profile=metalPresets[state.metal];
-  document.querySelectorAll('[data-metal]').forEach(button=>{const active=button.dataset.metal===state.metal;button.classList.toggle('selected',active);button.setAttribute('aria-pressed',String(active));});
-  $('paint-toggle').classList.toggle('selected',state.painted&&(!models.active||state.modelAppearance==='paint'));
+  const featherMode=state.material==='feathers';
+  document.querySelectorAll('[data-metal]').forEach(button=>{const active=!featherMode&&button.dataset.metal===state.metal;button.classList.toggle('selected',active);button.setAttribute('aria-pressed',String(active));});
+  $('feather-material').classList.toggle('selected',featherMode);
+  $('feather-material').setAttribute('aria-pressed',String(featherMode));
+  $('paint-toggle').classList.toggle('selected',!featherMode&&state.painted&&(!models.active||state.modelAppearance==='paint'));
+  $('exposure-controls').hidden=featherMode;
+  $('feather-controls').hidden=!featherMode;
+  $('layers-view').disabled=featherMode||(models.active&&!models.peelingStats);
   $('paint-enabled').checked=state.painted;
   uniforms.uPainted.value=Number(state.painted);
   uniforms.uPatina.value=profile.patina;
@@ -189,23 +203,118 @@ function updateMetalFinish(){
   uniforms.uDepositRoughness.value=profile.depositRoughness;
   uniforms.uCorrosionRelief.value=profile.relief;
   state.flakeFactor=state.painted?1:profile.bareFlaking;
-  $('metal-symbol').textContent=profile.symbol;
-  $('metal-name').textContent=profile.name.toUpperCase();
+  $('metal-symbol').textContent=featherMode?'Pl':profile.symbol;
+  $('metal-name').textContent=featherMode?'FEATHERS':profile.name.toUpperCase();
   $('scene').setAttribute('aria-label',`${state.painted?'Painted':'Bare'} ${profile.name.toLowerCase()} ${(models.active?'model':shapeNames[state.shape].toLowerCase())} developing ${profile.finish.toLowerCase()}. Tap the specimen to bounce. Drag loose flakes to move them; tap to remove. Drag elsewhere to orbit, scroll to zoom, or use the arrow keys.`);
   document.querySelector('[data-age="0"]').textContent=state.painted?'Fresh paint':'Fresh metal';
+  if(featherMode)$('scene').setAttribute('aria-label','Overlapping contour feathers on textured skin, rooted in visible follicles. Adjust density, feather lift and plumage direction in Settings. Drag to orbit, scroll to zoom, or use the arrow keys.');
+}
+function refreshFeathers(){
+  const active=state.material==='feathers';
+  core.material=active?feathers.substrate:coreMat;
+  surface.mesh.visible=!active;
+  if(active){
+    const stats=feathers.rebuild(models.active?models.meshes:[core],models.active?scene:specimen,state.featherDensity,state.seed);
+    $('feather-count').textContent=`${stats.count} feathers`;
+    $('layers-view').disabled=true;
+    $('scene').title='Drag to orbit · Scroll to zoom';
+  }else feathers.clear();
+  renderer.shadowMap.needsUpdate=true;renderDirty=true;
+}
+function leaveFeathers(){
+  if(state.material!=='feathers')return;
+  showFeatherOptions(false);
+  state.material='metal';
+  models.setAppearance();refreshFeathers();
 }
 function selectMetal(metal){
+  leaveFeathers();
   state.metal=metal;
   Object.assign(currentColors,metalPresets[state.metal].colors);
   updateMetalFinish();syncColors();repaint(!reducedMotion);
 }
 document.querySelectorAll('[data-metal]').forEach(button=>button.addEventListener('click',()=>selectMetal(button.dataset.metal)));
+$('feather-material').addEventListener('click',()=>{
+  if(state.material==='feathers'){showFeatherOptions($('feather-options').hidden);return;}
+  interactions.cancel();showPaintOptions(false);
+  state.material='feathers';repaint(false);
+  models.setAppearance();updateMetalFinish();refreshFeathers();
+  showFeatherOptions(true);
+});
+$('feather-density').addEventListener('input',event=>{
+  state.featherDensity=Number(event.target.value);
+  $('feather-density-value').textContent=state.featherDensity+'%';
+  event.target.setAttribute('aria-valuetext',state.featherDensity+'%');
+  paintRange(event.target);refreshFeathers();
+});
+const featherPercent=value=>Math.round(value)+'%';
+const featherSettingControls=[
+  ['length',1,value=>value.toFixed(2)+'×'],
+  ['width',1,value=>value.toFixed(2)+'×'],
+  ['detail',.01,featherPercent],
+  ['angle',1,value=>Math.round(value)+'°'],
+  ['opacity',.01,featherPercent],
+  ['shadow',.01,featherPercent],
+  ['subsurface',.01,featherPercent],
+  ['lift',1,value=>Math.round(value)+'°'],
+  ['flowDirection',1,value=>`${Math.round(value)}° ${['↓','↘','→','↗','↑','↖','←','↙'][Math.round(value/45)%8]}`],
+  ['breeze',.01,featherPercent],
+  ['windDirection',1,value=>`${Math.round(value)}° ${['E','NE','N','NW','W','SW','S','SE'][Math.round(value/45)%8]}`]
+];
+function syncWindDirection(){
+  $('feather-wind-arrow').style.transform=`rotate(${-state.featherSettings.windDirection}deg)`;
+  $('feather-windDirection').setAttribute('aria-valuetext',$('feather-windDirection-value').textContent+' · direction the breeze blows');
+}
+function syncFeatherSettingsUI(){
+  $('feather-density').value=state.featherDensity;
+  $('feather-density-value').textContent=state.featherDensity+'%';
+  $('feather-density').setAttribute('aria-valuetext',state.featherDensity+'%');
+  paintRange($('feather-density'));
+  for(const [key,multiplier,format] of featherSettingControls){
+    const input=$('feather-'+key),value=state.featherSettings[key]/multiplier;
+    input.value=value;paintRange(input);$('feather-'+key+'-value').textContent=format(value);
+  }
+  syncWindDirection();
+  $('feather-skin-color').value=state.featherSettings.skinColor;
+  $('feather-layering-summary').textContent=state.featherSettings.lift+'° lift';
+}
+for(const [key,multiplier,format] of featherSettingControls){
+  const input=$('feather-'+key);
+  input.addEventListener('input',()=>{
+    const value=Number(input.value);state.featherSettings[key]=value*multiplier;
+    paintRange(input);$('feather-'+key+'-value').textContent=format(value);
+    if(key==='windDirection')syncWindDirection();
+    if(key==='lift')$('feather-layering-summary').textContent=value+'° lift';
+    feathers.setSettings(state.featherSettings);renderDirty=true;
+  });
+}
+$('feather-skin-color').addEventListener('input',event=>{
+  state.featherSettings.skinColor=event.target.value;
+  feathers.setSettings(state.featherSettings);renderDirty=true;
+});
+function showFeatherOptions(open){
+  $('feather-options').hidden=!open;
+  $('feather-controls').closest('.specimen-dock').classList.toggle('feather-menu-open',open);
+  $('feather-settings-toggle').setAttribute('aria-expanded',String(open));
+  $('feather-material').setAttribute('aria-expanded',String(open));
+  if(open)showPaintOptions(false);
+}
+$('feather-settings-toggle').addEventListener('click',()=>showFeatherOptions($('feather-options').hidden));
+$('feather-settings-close').addEventListener('click',()=>{showFeatherOptions(false);$('feather-settings-toggle').focus();});
+$('feather-settings-reset').addEventListener('click',()=>{
+  state.featherDensity=25;Object.assign(state.featherSettings,defaultFeatherSettings);
+  syncFeatherSettingsUI();feathers.setSettings(state.featherSettings);refreshFeathers();
+});
+syncFeatherSettingsUI();
 
 function showPaintOptions(open){
   $('paint-options').hidden=!open;
   $('paint-toggle').setAttribute('aria-expanded',String(open));
 }
-$('paint-toggle').addEventListener('click',()=>showPaintOptions($('paint-options').hidden));
+$('paint-toggle').addEventListener('click',()=>{
+  if(state.material==='feathers'){leaveFeathers();updateMetalFinish();repaint(!reducedMotion);}
+  showPaintOptions($('paint-options').hidden);
+});
 function setModelAppearance(value){
   state.modelAppearance=value;$('model-paint-mode').value=value;
   if(value==='paint')state.painted=true;
@@ -226,9 +335,11 @@ $('picker-paint-color').addEventListener('input',event=>{
 });
 document.addEventListener('click',event=>{
   if(!$('paint-options').contains(event.target)&&!$('paint-toggle').contains(event.target))showPaintOptions(false);
+  if(!$('feather-controls').contains(event.target)&&!$('feather-material').contains(event.target))showFeatherOptions(false);
 });
 document.addEventListener('keydown',event=>{
   if(event.key==='Escape'&&!$('paint-options').hidden){showPaintOptions(false);$('paint-toggle').focus();}
+  if(event.key==='Escape'&&!$('feather-options').hidden){showFeatherOptions(false);$('feather-settings-toggle').focus();}
 });
 
 function changeShape(shape){
@@ -249,6 +360,7 @@ document.querySelectorAll('[data-shape]').forEach(button=>button.addEventListene
   if(button.dataset.shape===state.shape&&!models.active){models.clear();return;}
   interactions.cancel();changeShape(button.dataset.shape);
   state.age=0;state.exploded=0;setLayerView(0);surface.rebuild();paintHold=2.6;
+  refreshFeathers();
   updateMetalFinish();updateAgeUI();setPlaying(!reducedMotion);
   renderer.shadowMap.needsUpdate=true;renderDirty=true;
 }));
@@ -261,6 +373,8 @@ $('horse-shape').addEventListener('click',async()=>{
 
 $('random-shape').onclick=async()=>{
   interactions.cancel();
+  const previousMaterial=state.material==='feathers'?'feathers':state.metal;
+  leaveFeathers();
   const previousSeed=state.seed;
   state.seed=Math.floor(Math.random()*90000)+10000;
   if(state.seed===previousSeed)state.seed=10000+(state.seed-9999)%90000;
@@ -269,8 +383,10 @@ $('random-shape').onclick=async()=>{
   const shapes=[...Object.keys(shapeNames),...Object.keys(sampleNames)].filter(shape=>shape!==selected);
   const nextShape=shapes[Math.floor(Math.random()*shapes.length)];
   if(sampleNames[nextShape])models.clear();else changeShape(nextShape);
-  const metals=Object.keys(metalPresets).filter(metal=>metal!==state.metal);
-  state.metal=metals[Math.floor(Math.random()*metals.length)];
+  const materials=[...Object.keys(metalPresets),'feathers'].filter(material=>material!==previousMaterial);
+  const material=materials[Math.floor(Math.random()*materials.length)];
+  state.material=material==='feathers'?'feathers':'metal';
+  if(state.material==='metal')state.metal=material;
   state.painted=Math.random()<.5;
   const profile=metalPresets[state.metal];
   // Keep corrosion and base-metal colours recognisable, with a fresh variation.
@@ -291,9 +407,10 @@ $('random-shape').onclick=async()=>{
   if(sampleNames[nextShape]) {
     setPlaying(false);
     if(!await models.loadSample(nextShape,sampleNames[nextShape]))return;
-  }
+  }else refreshFeathers();
   setPlaying(!reducedMotion);
-  toast(`${state.painted?'Painted':'Bare'} ${profile.name.toLowerCase()} ${(sampleNames[nextShape]??shapeNames[state.shape]).toLowerCase()}. New colours, new pattern.`);
+  const appearance=state.material==='feathers'?'Feathered':`${state.painted?'Painted':'Bare'} ${profile.name.toLowerCase()}`;
+  toast(`${appearance} ${(sampleNames[nextShape]??shapeNames[state.shape]).toLowerCase()}. New colours, new pattern.`);
 };
 
 $('scene').addEventListener('keydown',e=>{if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)){e.preventDefault();const offset=camera.position.clone().sub(controls.target);const spherical=new THREE.Spherical().setFromVector3(offset);if(e.key==='ArrowLeft')spherical.theta-=.1;if(e.key==='ArrowRight')spherical.theta+=.1;if(e.key==='ArrowUp')spherical.phi=Math.max(.15,spherical.phi-.1);if(e.key==='ArrowDown')spherical.phi=Math.min(Math.PI-.15,spherical.phi+.1);camera.position.copy(controls.target).add(new THREE.Vector3().setFromSpherical(spherical));controls.update();}});
@@ -316,11 +433,12 @@ function animate(time){
     }
   }
   if(Math.abs(state.exploded-desiredExplode)>.001){state.exploded=THREE.MathUtils.damp(state.exploded,desiredExplode,7,dt);geometryDirty=true;}
-  if(!models.active&&((geometryDirty&&time-lastGeometryTime>45)||(surface.pendingReleaseCount&&time-lastGeometryTime>100))){surface.updateAttached();lastGeometryTime=time;}
+  if(state.material!=='feathers'&&!models.active&&((geometryDirty&&time-lastGeometryTime>45)||(surface.pendingReleaseCount&&time-lastGeometryTime>100))){surface.updateAttached();lastGeometryTime=time;}
   // Physics continues independently of the aging timeline and playback speed.
   if(interactions.update(dt)){renderDirty=true;renderer.shadowMap.needsUpdate=true;}
-  if(!models.active){physics.step(dt);surface.syncPhysics();}
-  if(models.update(dt)){renderDirty=true;renderer.shadowMap.needsUpdate=true;}
+  if(state.material!=='feathers'&&!models.active){physics.step(dt);surface.syncPhysics();}
+  if(models.update(dt)){if(state.material==='feathers')feathers.update();renderDirty=true;renderer.shadowMap.needsUpdate=true;}
+  if(state.material==='feathers'&&feathers.advance(dt))renderDirty=true;
   uiElapsed+=dt;if(uiElapsed>.15){if(state.age!==lastUIAge){updateAgeUI();lastUIAge=state.age;}uiElapsed=0;}
   const geometry=surface.mesh.geometry;
   // Camera orbit and shader-only aging do not change the light-space geometry.
@@ -330,7 +448,7 @@ function animate(time){
   }
   if(geometryDirty)renderDirty=true;
   controls.update(dt);
-  if(renderDirty||firstFrame){renderer.render(scene,camera);renderDirty=false;}
+  if(renderDirty||firstFrame){featherRenderer.render(scene,camera);renderDirty=false;}
   if(firstFrame){firstFrame=false;$('loading').classList.add('complete');setTimeout(()=>$('loading').remove(),700);}
 }
 requestAnimationFrame(animate);

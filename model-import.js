@@ -18,7 +18,7 @@ export function disposeModel(root) {
   geometries.forEach(g => g.dispose()); skeletons.forEach(s => s.dispose());
 }
 
-export function createModelImporter({ scene, uniforms, state, onActivate, onClear, invalidate, reducedMotion, notify = () => {} }) {
+export function createModelImporter({ scene, uniforms, state, featherMaterial, onActivate, onClear, invalidate, reducedMotion, notify = () => {} }) {
   const $ = id => document.getElementById(id);
   let current = null, revision = 0;
   const loader = new GLTFLoader();
@@ -71,7 +71,13 @@ export function createModelImporter({ scene, uniforms, state, onActivate, onClea
   function configurePeeling() {
     current.peeling?.dispose(); current.peeling=null;
     const {root,slots,originals}=current;
-    for(const slot of slots)if(slot.select)slot.select.disabled=state.modelAppearance==='original';
+    for(const slot of slots)if(slot.select)slot.select.disabled=state.modelAppearance==='original'||state.material==='feathers';
+    if(state.material==='feathers') {
+      root.traverse(mesh=>{if(originals.has(mesh))mesh.material=featherMaterial;});
+      $('layers-view').disabled=true;
+      $('model-peeling-note').textContent='Skin and overlapping feathers follow the mesh. Adjust density, lift and plumage direction in Settings.';
+      return;
+    }
     if(state.modelAppearance==='original') {
       root.traverse(mesh=>{if(originals.has(mesh))mesh.material=originals.get(mesh);});
       $('layers-view').disabled=true;
@@ -246,6 +252,7 @@ export function createModelImporter({ scene, uniforms, state, onActivate, onClea
     loadSample(key,name) { return loadModel(`./samples/${key}.glb`,name,key); },
     get sampleKey() { return current?.sampleKey ?? null; },
     get active() { return !!current; },
+    get meshes() { return current ? [...current.originals.keys()] : []; },
     get peelingStats() { return current?.peeling?.stats() ?? null; },
     repaint() { current?.peeling?.repaint(); },
     setAppearance() { if(current){configurePeeling();invalidate();} },

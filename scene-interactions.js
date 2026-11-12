@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 
-export function createSceneInteractions({canvas,camera,controls,core,specimen,surface,physics,invalidate}){
+export function createSceneInteractions({canvas,camera,controls,core,specimen,surface,physics,invalidate,enabled=()=>true}){
   const ray=new THREE.Raycaster(),pointer=new THREE.Vector2(),plane=new THREE.Plane();
   const normal=new THREE.Vector3(),point=new THREE.Vector3(),offset=new THREE.Vector3();
   const baseY=specimen.position.y;
@@ -24,7 +24,7 @@ export function createSceneInteractions({canvas,camera,controls,core,specimen,su
   }
   canvas.addEventListener('pointerdown',event=>{
     if(gesture){finish(true);return;}
-    if(event.button!==0||!specimen.visible)return;
+    if(event.button!==0||!specimen.visible||!enabled())return;
     aim(event);surface.mesh.geometry.computeBoundingSphere();
     const hit=ray.intersectObjects([surface.mesh,core],false)[0];
     if(!hit)return;
@@ -56,7 +56,7 @@ export function createSceneInteractions({canvas,camera,controls,core,specimen,su
   canvas.addEventListener('pointercancel',event=>{if(event.pointerId===gesture?.id)finish(true);},true);
   canvas.addEventListener('lostpointercapture',event=>{if(event.pointerId===gesture?.id)finish(true);});
   window.addEventListener('blur',()=>finish(true));
-  canvas.addEventListener('keydown',event=>{if(specimen.visible&&(event.code==='Space'||event.code==='Enter')){event.preventDefault();velocity=2.5;invalidate();}});
+  canvas.addEventListener('keydown',event=>{if(enabled()&&specimen.visible&&(event.code==='Space'||event.code==='Enter')){event.preventDefault();velocity=2.5;invalidate();}});
   canvas.title='Tap shape to bounce · Drag loose flakes to move · Tap a loose flake to remove';
   return {
     cancel(){finish(true);height=0;velocity=0;specimen.position.y=baseY;physics.setCubeTransform(specimen.position,specimen.quaternion);invalidate();},
