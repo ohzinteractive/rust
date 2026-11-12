@@ -37,6 +37,23 @@ function outwardFaces(vertices, faces) {
   });
 }
 
+// SAT projects onto lines: reversing an axis describes the same test. Cannon
+// retains antiparallel edges, multiplying its edge-pair work on beveled hulls.
+// Deduplicate only directions; vertices, faces and contact clipping stay intact.
+export function optimizeCollisionAxes(shape){
+  function unique(directions){
+    const result=[];
+    for(const direction of directions){
+      if(!result.some(other=>other.almostEquals(direction,1e-8)||
+        (Math.abs(other.x+direction.x)<1e-8&&Math.abs(other.y+direction.y)<1e-8&&Math.abs(other.z+direction.z)<1e-8)))result.push(direction);
+    }
+    return result;
+  }
+  shape.uniqueAxes=unique(shape.faceNormals);
+  shape.uniqueEdges=unique(shape.uniqueEdges);
+  return shape;
+}
+
 /**
  * Persistent rigid-body flake simulation. Coordinates use Three.js's Y-up axes.
  *
@@ -171,7 +188,7 @@ export function createFlakePhysics({
     if (!Number.isFinite(mass) || mass <= 0) throw new TypeError('Flake mass must be positive.');
     const hullVertices = vertices.map((vertex, index) => vector(vertex, `vertices[${index}]`));
     const hullFaces = outwardFaces(hullVertices, faces);
-    const shape = new CANNON.ConvexPolyhedron({ vertices: hullVertices, faces: hullFaces });
+    const shape = optimizeCollisionAxes(new CANNON.ConvexPolyhedron({ vertices: hullVertices, faces: hullFaces }));
     const body = new CANNON.Body({
       mass,
       material: flakeMaterial,
@@ -286,7 +303,7 @@ export function createFlakePhysics({
     for(const hull of hulls){
       const vertices=hull.vertices.map(v=>vector(v,'hull vertex'));
       const body=new CANNON.Body({mass:0,material:cubeMaterial,collisionFilterGroup:STATIC_GROUP,collisionFilterMask:FLAKE_GROUP});
-      body.addShape(new CANNON.ConvexPolyhedron({vertices,faces:outwardFaces(vertices,hull.faces)}));
+      body.addShape(optimizeCollisionAxes(new CANNON.ConvexPolyhedron({vertices,faces:outwardFaces(vertices,hull.faces)})));
       body.position.copy(vector(hull.position,'hull position'));world.addBody(body);importedColliders.push(body);
     }
   }

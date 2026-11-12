@@ -107,15 +107,18 @@ export function buildCollisionHull(points,basis={u:{x:1,y:0,z:0},v:{x:0,y:1,z:0}
     const support=Math.max(...normalized.map(p=>dot(normal,p)))+skin*Math.hypot(x/scale[0],y/scale[1],z/scale[2]);
     polygons=clipPolyhedron(polygons,normal,support);
   }
-  const vertices=[],faces=[],map=new Map();
+  const vertices=[],faces=[],normalizedVertices=[];
   for(const polygon of polygons){
     const ids=[];
     for(const p of polygon){
-      const idKey=key(p);let index=map.get(idKey);
-      if(index===undefined){
+      // Independent plane intersections can land on opposite sides of a hash
+      // cell boundary even when they describe the same corner. Weld by actual
+      // distance in normalized space so every face shares the same vertex IDs.
+      let index=normalizedVertices.findIndex(q=>distance2(p,q)<=KEY_EPS*KEY_EPS*4);
+      if(index===-1){
         const local=p.map((x,i)=>x*scale[i]+center[i]);
         const q=axes.reduce((sum,axis,i)=>add(sum,mul(axis,local[i])),[0,0,0]);
-        index=vertices.length;map.set(idKey,index);vertices.push({x:q[0],y:q[1],z:q[2]});
+        index=vertices.length;normalizedVertices.push(p);vertices.push({x:q[0],y:q[1],z:q[2]});
       }
       if(!ids.length||ids[ids.length-1]!==index)ids.push(index);
     }
@@ -134,5 +137,13 @@ export function buildCollisionHull(points,basis={u:{x:1,y:0,z:0},v:{x:0,y:1,z:0}
     faces.push([...ids.slice(start),...ids.slice(0,start)]);
   }
   if(faces.length<4||faces.length>26)throw new Error('Collision hull construction failed.');
+  // Cannon's contact clipping requires a closed polyhedron. Catch malformed
+  // adjacency here rather than letting a collision fail during animation.
+  const edges=new Map();
+  for(const face of faces)for(let i=0;i<face.length;i++){
+    const a=face[i],b=face[(i+1)%face.length],id=a<b?`${a},${b}`:`${b},${a}`;
+    edges.set(id,(edges.get(id)??0)+1);
+  }
+  if([...edges.values()].some(count=>count!==2))throw new Error('Collision hull has an open or non-manifold edge.');
   return {vertices,faces};
 }
