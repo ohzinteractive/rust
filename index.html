@@ -23,7 +23,26 @@
         <a href="https://github.com/ohzinteractive/rust" target="_blank" rel="noopener noreferrer">GitHub ↗</a>
         <span>Made by <a href="https://ohzi.io" target="_blank" rel="noopener noreferrer">ohzi.io</a></span>
       </nav>
-      <button id="settings-toggle" class="settings-toggle" type="button" aria-expanded="false" aria-controls="settings-panel">Settings</button>
+      <details class="model-panel" hidden>
+        <summary>Import model <span>GLB ↓</span></summary>
+        <div class="model-controls">
+          <button id="import-model" type="button">Choose GLB file</button>
+          <input id="model-file" type="file" accept=".glb,.fbx" multiple hidden>
+          <p id="model-status" role="status">Drop a GLB here, or import a file.</p>
+          <div id="model-details" hidden>
+            <strong id="model-name"></strong>
+            <div id="material-slots"></div>
+            <label for="model-animation">Animation</label>
+            <select id="model-animation"><option value="-1">Rest pose</option></select>
+            <button id="animation-toggle" type="button" disabled>Play animation</button>
+            <button id="import-animation" type="button">Import FBX animation</button>
+            <input id="animation-file" type="file" accept=".fbx" hidden>
+            <p id="model-peeling-note">Static models support peeling; animated models use shader weathering.</p>
+            <button id="remove-model" type="button">Return to shapes</button>
+          </div>
+        </div>
+      </details>
+      <div class="drop-overlay" aria-hidden="true">Drop GLB model or FBX animation</div>
       <div class="view-mode" role="group" aria-label="Material view">
         <button id="surface-view" class="selected" aria-pressed="true">Surface</button>
         <button id="layers-view" aria-pressed="false">Layers</button>
@@ -56,7 +75,8 @@
         </button>
         </div>
         <div id="paint-options" class="paint-options" role="group" aria-label="Paint options" hidden>
-          <label class="paint-enabled"><input id="paint-enabled" type="checkbox" checked> Painted surface</label>
+          <label id="basic-paint-option" class="paint-enabled"><input id="paint-enabled" type="checkbox" checked> Painted surface</label>
+          <label id="model-paint-option" class="paint-enabled" hidden><span>Surface</span><select id="model-paint-mode" aria-label="Model surface"><option value="original">Original material</option><option value="paint" selected>Paint coat</option></select></label>
           <label class="paint-colour" for="picker-paint-color"><span>Paint colour</span><input id="picker-paint-color" type="color" value="#efc51a"></label>
         </div>
         <div class="picker-row shape-row" role="group" aria-label="Choose shape">
@@ -65,38 +85,13 @@
           <button type="button" class="material-swatch shape-swatch" data-shape="sphere" aria-pressed="false" aria-label="Sphere shape"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><ellipse cx="12" cy="12" rx="4" ry="10"/><path d="M2 12h20"/></svg><span>Sphere</span></button>
           <button type="button" class="material-swatch shape-swatch" data-shape="plus" aria-pressed="false" aria-label="Plus shape"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 2h8v6h6v8h-6v6H8v-6H2V8h6Z"/></svg><span>Plus</span></button>
           <button type="button" class="material-swatch shape-swatch" data-shape="pill" aria-pressed="false" aria-label="Pill shape"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="2" width="12" height="20" rx="6" transform="rotate(30 12 12)"/></svg><span>Pill</span></button>
+          <button type="button" id="horse-shape" class="material-swatch shape-swatch" aria-pressed="false" aria-label="Horse statue"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 21 1-6-3-2-3 1-1-3 4-4 2-4 2 3 4 2 2 5 4 2 1 6M8 21h13M9 15l6-3M8 7h.01"/></svg><span>Horse</span></button>
           <button type="button" id="random-shape" class="material-swatch shape-swatch" aria-label="Randomize specimen" title="New shape, material, paint and colours"><svg aria-hidden="true"><use href="#i-shuffle"></use></svg><span>Random</span></button>
         </div>
       </div>
       </div>
     </section>
 
-    <aside id="settings-panel" class="control-panel" aria-label="Simulation controls" hidden>
-      <button id="settings-close" class="settings-close" type="button" aria-label="Close settings">Close ×</button>
-
-      <button class="repaint-button" id="restart"><svg><use href="#i-reset"></use></svg>Repaint &amp; restart</button>
-
-
-      <div class="control compact"><div class="control-label"><label for="scale">Noise scale</label><output for="scale" id="scale-value">2.4<span>×</span></output></div><input type="range" id="scale" min="0.8" max="5" value="2.4" step="0.1" style="--fill: 38.095238095238095%;"></div>
-      <div class="control compact"><div class="control-label"><label for="peel">Peeling</label><output for="peel" id="peel-value">68<span>%</span></output></div><input type="range" id="peel" min="0" max="100" value="68" style="--fill: 68%;"></div>
-      <div class="control compact"><div class="control-label"><label for="relief">Surface relief</label><output for="relief" id="relief-value">100<span>%</span></output></div><input type="range" id="relief" min="0" max="100" value="100" style="--fill: 100%;"></div>
-
-      <div class="palette-heading"><h3>Colour study</h3><span id="palette-name">Yellow / painted</span></div>
-      <div class="palette-options" role="group" aria-label="Color palette">
-        <button class="palette selected" data-palette="yellow" aria-label="Yellow paint palette: yellow, rust and muted green" aria-pressed="true"><span style="--swatch:#efc51a"></span><span style="--swatch:#b95b28"></span><span style="--swatch:#53645a"></span><span class="palette-check">✓</span></button>
-        <button class="palette" data-palette="oxide" aria-label="Oxide palette: rust, muted green and ochre" aria-pressed="false"><span style="--swatch:#af5129"></span><span style="--swatch:#5b6554"></span><span style="--swatch:#b99a56"></span><span class="palette-check">✓</span></button>
-        <button class="palette" data-palette="ember" aria-label="Ember palette: amber, terracotta and charcoal" aria-pressed="false"><span style="--swatch:#c46430"></span><span style="--swatch:#785846"></span><span style="--swatch:#554e43"></span><span class="palette-check">✓</span></button>
-        <button class="palette" data-palette="tidal" aria-label="Tidal palette: rust, cool green and ivory" aria-pressed="false"><span style="--swatch:#b36b39"></span><span style="--swatch:#6b8580"></span><span style="--swatch:#e3d8bd"></span><span class="palette-check">✓</span></button>
-      </div>
-      <div class="individual-colors" role="group" aria-label="Independent material colors">
-        <label class="color-control" for="color-paint"><input id="color-paint" type="color" value="#efc51a" aria-label="Topcoat paint color"><span>Paint<small id="hex-paint">#EFC51A</small></span></label>
-        <label class="color-control" for="color-undercoat"><input id="color-undercoat" type="color" value="#53645a" aria-label="Undercoat color"><span>Undercoat<small id="hex-undercoat">#53645A</small></span></label>
-        <label class="color-control" for="color-rust"><input id="color-rust" type="color" value="#b95b28" aria-label="Corrosion color"><span><span id="corrosion-label">Rust</span><small id="hex-rust">#B95B28</small></span></label>
-        <label class="color-control" for="color-oxide"><input id="color-oxide" type="color" value="#70371f" aria-label="Dark oxide color"><span>Dark deposits<small id="hex-oxide">#70371F</small></span></label>
-        <label class="color-control" for="color-metal"><input id="color-metal" type="color" value="#343936" aria-label="Exposed metal color"><span>Metal<small id="hex-metal">#343936</small></span></label>
-      </div>
-      <button class="new-specimen" id="new-specimen"><svg><use href="#i-shuffle"></use></svg>New specimen<span id="seed-value">SEED 07319</span></button>
-    </aside>
   </main>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>

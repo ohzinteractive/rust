@@ -162,7 +162,7 @@ export class PeelingSurface {
           pt.add(root).addScaledVector(face.n,curl+split);
           // Internal walls stay collapsed beneath intact paint; otherwise
           // their overlapping shadow casters reveal a dotted cell outline.
-          if(info.wall&&!info.back)pt.addScaledVector(info.surfaceNormal??face.n,-.018*(1-localCrack));
+          if(info.wall&&!info.back)pt.addScaledVector(info.surfaceNormal??face.n,-(this.thickness??.018)*(1-localCrack));
           positions.setXYZ(info.index,pt.x,pt.y,pt.z);
         }
         this.updateNormals(flake);

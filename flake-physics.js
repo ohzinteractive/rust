@@ -277,7 +277,22 @@ export function createFlakePhysics({
     body.collisionFilterGroup=FLAKE_GROUP;body.collisionFilterMask=STATIC_GROUP|SETTLED_GROUP;
     body.wakeUp();activeBodies.add(body);
   }
+  const importedColliders=[];
+  function setSpecimenHulls(hulls){
+    for(const body of importedColliders)world.removeBody(body);
+    importedColliders.length=0;
+    for(const shape of [...cube.shapes])cube.removeShape(shape);
+    cube.updateBoundingRadius();cube.aabbNeedsUpdate=true;
+    for(const hull of hulls){
+      const vertices=hull.vertices.map(v=>vector(v,'hull vertex'));
+      const body=new CANNON.Body({mass:0,material:cubeMaterial,collisionFilterGroup:STATIC_GROUP,collisionFilterMask:FLAKE_GROUP});
+      body.addShape(new CANNON.ConvexPolyhedron({vertices,faces:outwardFaces(vertices,hull.faces)}));
+      body.position.copy(vector(hull.position,'hull position'));world.addBody(body);importedColliders.push(body);
+    }
+  }
   function setSpecimenShape(shape){
+    for(const body of importedColliders)world.removeBody(body);
+    importedColliders.length=0;
     for(const collider of [...cube.shapes])cube.removeShape(collider);
     if(shape==='sphere')cube.addShape(new CANNON.Sphere(1.432));
     else if(shape==='pill'){
@@ -317,5 +332,5 @@ export function createFlakePhysics({
     return { total: bodies.size, awake: activeBodies.size, sleeping, held:heldBodies.size, grounded: groundedBodies.size, simulationSeconds: world.time };
   }
 
-  return { world, addFlake, removeFlake, grabFlake, moveFlake, releaseFlake, setCubeTransform, setSpecimenShape, step, clear, stats };
+  return { world, addFlake, removeFlake, grabFlake, moveFlake, releaseFlake, setCubeTransform, setSpecimenShape, setSpecimenHulls, step, clear, stats };
 }

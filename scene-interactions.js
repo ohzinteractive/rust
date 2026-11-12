@@ -24,7 +24,7 @@ export function createSceneInteractions({canvas,camera,controls,core,specimen,su
   }
   canvas.addEventListener('pointerdown',event=>{
     if(gesture){finish(true);return;}
-    if(event.button!==0)return;
+    if(event.button!==0||!specimen.visible)return;
     aim(event);surface.mesh.geometry.computeBoundingSphere();
     const hit=ray.intersectObjects([surface.mesh,core],false)[0];
     if(!hit)return;
@@ -56,7 +56,7 @@ export function createSceneInteractions({canvas,camera,controls,core,specimen,su
   canvas.addEventListener('pointercancel',event=>{if(event.pointerId===gesture?.id)finish(true);},true);
   canvas.addEventListener('lostpointercapture',event=>{if(event.pointerId===gesture?.id)finish(true);});
   window.addEventListener('blur',()=>finish(true));
-  canvas.addEventListener('keydown',event=>{if(event.code==='Space'||event.code==='Enter'){event.preventDefault();velocity=2.5;invalidate();}});
+  canvas.addEventListener('keydown',event=>{if(specimen.visible&&(event.code==='Space'||event.code==='Enter')){event.preventDefault();velocity=2.5;invalidate();}});
   canvas.title='Tap shape to bounce · Drag loose flakes to move · Tap a loose flake to remove';
   return {
     cancel(){finish(true);height=0;velocity=0;specimen.position.y=baseY;physics.setCubeTransform(specimen.position,specimen.quaternion);invalidate();},

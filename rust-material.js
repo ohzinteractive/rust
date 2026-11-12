@@ -62,8 +62,12 @@ const noiseGLSL=`
   }
 `;
 
-export function createRustMaterial(uniforms,isCoating=false){
+export function createRustMaterial(uniforms,isCoating=false,source=null){
   const material=new THREE.MeshStandardMaterial({color:0xffffff,roughness:.64,metalness:.04,side:isCoating?THREE.DoubleSide:THREE.FrontSide,envMapIntensity:.45});
+  if(source){
+    material.color.copy(source.color || new THREE.Color(0xffffff));
+    for(const key of ['map','alphaMap','transparent','opacity','alphaTest','side','depthWrite','vertexColors'])if(source[key]!==undefined)material[key]=source[key];
+  }
   material.onBeforeCompile=shader=>{
     Object.assign(shader.uniforms,uniforms);
     shader.vertexShader=shader.vertexShader
@@ -99,6 +103,7 @@ export function createRustMaterial(uniforms,isCoating=false){
         rustHeight*=uCorrosionRelief;
         float paintWeathering=smoothstep(.08,.35,age);
         vec3 freshPaint=mix(uMetal,uPink,uPainted)*mix(1.0,.96+grain*.04,paintWeathering);
+        freshPaint *= ${source ? "diffuseColor.rgb" : "vec3(1.0)"};
         float materialHeight=0.0;
         float surfaceRoughness=.44;
         float surfaceMetalness=.0;
@@ -147,6 +152,6 @@ export function createRustMaterial(uniforms,isCoating=false){
       .replace('#include <metalnessmap_fragment>',`#include <metalnessmap_fragment>\nmetalnessFactor=surfaceMetalness;`)
       .replace('#include <normal_fragment_maps>',`#include <normal_fragment_maps>\nnormal=perturbSurface(-vViewPosition,normal,materialHeight*uRelief*.075);`);
   };
-  material.customProgramCacheKey=()=>isCoating?'oxide-peeling-v9':'oxide-substrate-v9';
+  material.customProgramCacheKey=()=>`${isCoating?'oxide-peeling-v9':'oxide-substrate-v9'}${source?'-imported':''}`;
   return material;
 }

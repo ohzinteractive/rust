@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { createModelImporter } from './model-import.js';
 import { OrbitControls } from './vendor/OrbitControls.js';
 import { RoomEnvironment } from './vendor/RoomEnvironment.js';
 import { createFlakePhysics } from './flake-physics.js';
@@ -12,16 +13,9 @@ import { metalPresets, corrosionRate } from './metal-presets.js';
 const $ = (id) => document.getElementById(id);
 const clamp = (x,a=0,b=1) => Math.max(a,Math.min(b,x));
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
-const state = {shape:'cube',metal:'iron',painted:true,flakeFactor:1,age:0,moisture:.72,oxygen:.8,salt:.28,scale:2.4,peel:.68,relief:1,seed:7319,palette:'yellow',playing:!reducedMotion,rotate:!reducedMotion,speed:10,exploded:0};
-const paletteData = {
-  yellow:{name:'Yellow / painted',dark:'#241610',burnt:'#70371f',orange:'#b95b28',gold:'#b28a45',teal:'#53645a',tealLight:'#7d8b72',pink:'#efc51a',pinkLight:'#f7d74b',metal:'#343936'},
-  oxide:{name:'Oxide / original',dark:'#211711',burnt:'#713822',orange:'#af5129',gold:'#b18a49',teal:'#5b6554',tealLight:'#8a957d',pink:'#b99a56',pinkLight:'#d7bd7a',metal:'#343936'},
-  ember:{name:'Ember / warm',dark:'#271712',burnt:'#813c25',orange:'#c46430',gold:'#bd914d',teal:'#785846',tealLight:'#a08464',pink:'#514940',pinkLight:'#b3a082',metal:'#383633'},
-  tidal:{name:'Tidal / cool',dark:'#211b16',burnt:'#70452c',orange:'#b36b39',gold:'#ab945d',teal:'#6b8580',tealLight:'#a2b4a4',pink:'#c8bea4',pinkLight:'#f0e7ce',metal:'#303c3d'}
-};
+const state = {shape:'cube',metal:'iron',painted:true,modelAppearance:'paint',flakeFactor:1,age:0,moisture:.72,oxygen:.8,salt:.28,scale:2.4,peel:.68,relief:1,seed:7319,playing:!reducedMotion,rotate:!reducedMotion,speed:10,exploded:0};
 const colorKeys=['dark','burnt','orange','gold','teal','tealLight','pink','pinkLight','metal'];
-const colorFields={paint:'pink',undercoat:'teal',rust:'orange',oxide:'burnt',metal:'metal'};
-const currentColors={...paletteData.yellow};
+const currentColors={dark:'#241610',burnt:'#70371f',orange:'#b95b28',gold:'#b28a45',teal:'#53645a',tealLight:'#7d8b72',pink:'#efc51a',pinkLight:'#f7d74b',metal:'#343936'};
 let paintHold=2.6;
 
 let renderDirty=true;
@@ -101,6 +95,29 @@ const shadowTexture=new THREE.CanvasTexture(shadowCanvas);
 const shadow=new THREE.Mesh(new THREE.PlaneGeometry(5.5,5.5),new THREE.MeshBasicMaterial({map:shadowTexture,transparent:true,depthWrite:false,opacity:.5}));
 shadow.rotation.x=-Math.PI/2;shadow.position.y=floorY+.002;scene.add(shadow);
 
+const models=createModelImporter({scene,uniforms,state,reducedMotion,notify:toast,
+  invalidate(){renderDirty=true;renderer.shadowMap.needsUpdate=true;},
+  onActivate(name,peeling){
+    $('model-paint-option').hidden=false;$('basic-paint-option').hidden=true;
+    if(state.modelAppearance==='paint')state.painted=true;
+    updateMetalFinish();
+    interactions.cancel();surface.repaint();specimen.visible=false;setLayerView(0);
+    $('layers-view').disabled=!peeling;
+    document.querySelectorAll('[data-shape]').forEach(b=>{b.classList.remove('selected');b.setAttribute('aria-pressed','false');});
+    $('scene').setAttribute('aria-label',`${name}. Drag to orbit, scroll to zoom. Use model controls for materials and animation.`);
+    $('horse-shape').classList.toggle('selected',models.sampleKey==='horse');
+    $('horse-shape').setAttribute('aria-pressed',String(models.sampleKey==='horse'));
+    $('scene').title='Drag to orbit · Scroll to zoom';
+  },
+  onClear(){
+    $('model-paint-option').hidden=true;$('basic-paint-option').hidden=false;
+    $('horse-shape').classList.remove('selected');$('horse-shape').setAttribute('aria-pressed','false');
+    specimen.visible=true;$('layers-view').disabled=false;
+    document.querySelectorAll('[data-shape]').forEach(b=>{const active=b.dataset.shape===state.shape;b.classList.toggle('selected',active);b.setAttribute('aria-pressed',String(active));});
+    updateMetalFinish();
+  }
+});
+
 let size={w:0,h:0};
 function resize(){
   renderDirty=true;
@@ -141,23 +158,11 @@ function setAge(value){
 }
 $('age').addEventListener('input',e=>setAge(+e.target.value/100));
 document.querySelectorAll('[data-age]').forEach(b=>{if(b.dataset.age==='0')b.textContent='Fresh paint';b.onclick=()=>setAge(+b.dataset.age/100);});
-for(const key of ['scale','peel','relief']){
-  const el=$(key);paintRange(el);
-  el.addEventListener('input',()=>{
-    state[key]=key==='scale'?+el.value:+el.value/100;
-    $(key+'-value').innerHTML=key==='scale'?`${state.scale.toFixed(1)}<span>×</span>`:`${Math.round(state[key]*100)}<span>%</span>`;
-    paintRange(el);
-    if(key==='scale')uniforms.uScale.value=state.scale;
-    if(key==='relief')uniforms.uRelief.value=state.relief;
-    if(key==='peel'||key==='relief')surface.updateAttached();
-  });
-}
 function repaint(shouldPlay=true){
   interactions.cancel();
   state.age=0;paintHold=2.6;state.exploded=0;setLayerView(0);
-  surface.repaint();updateAgeUI();setPlaying(shouldPlay);
+  surface.repaint();models.repaint();updateAgeUI();setPlaying(shouldPlay);
 }
-$('restart').onclick=()=>{repaint(!reducedMotion);toast('Fresh surface. The next transformation begins.');};
 $('rotate').classList.toggle('active',state.rotate);$('rotate').setAttribute('aria-pressed',state.rotate);$('rotate').setAttribute('aria-label',state.rotate?'Pause automatic rotation':'Start automatic rotation');
 $('rotate').onclick=()=>{state.rotate=!state.rotate;controls.autoRotate=state.rotate;$('rotate').classList.toggle('active',state.rotate);$('rotate').setAttribute('aria-pressed',state.rotate);$('rotate').setAttribute('aria-label',state.rotate?'Pause automatic rotation':'Start automatic rotation');};
 $('reset-view').onclick=()=>{controls.reset();controls.autoRotate=state.rotate;toast('View reset');};
@@ -167,39 +172,15 @@ $('surface-view').onclick=()=>setLayerView(0);$('layers-view').onclick=()=>setLa
 function syncColors(){
   $('picker-paint-color').value=currentColors.pink;
   for(const name of colorKeys)uniforms['u'+name[0].toUpperCase()+name.slice(1)].value.set(currentColors[name]);
-  for(const [field,key]of Object.entries(colorFields)){
-    $('color-'+field).value=currentColors[key];$('hex-'+field).textContent=currentColors[key].toUpperCase();
-  }
 }
-function deriveColor(base,kind){
-  const color=new THREE.Color(base);
-  if(kind==='light')color.lerp(new THREE.Color('#fff2ba'),.27);
-  if(kind==='gold')color.lerp(new THREE.Color('#b99a60'),.35);
-  if(kind==='dark')color.multiplyScalar(.3);
-  return '#'+color.getHexString();
+function lightPaintColor(base){
+  return '#'+new THREE.Color(base).lerp(new THREE.Color('#fff2ba'),.27).getHexString();
 }
-for(const [field,key]of Object.entries(colorFields)){
-  $('color-'+field).addEventListener('input',e=>{
-    currentColors[key]=e.target.value;
-    if(field==='paint')currentColors.pinkLight=deriveColor(e.target.value,'light');
-    if(field==='undercoat')currentColors.tealLight=deriveColor(e.target.value,'light');
-    if(field==='rust')currentColors.gold=deriveColor(e.target.value,'gold');
-    if(field==='oxide')currentColors.dark=deriveColor(e.target.value,'dark');
-    state.palette='custom';$('palette-name').textContent='Custom / individual';
-    document.querySelectorAll('[data-palette]').forEach(b=>{b.classList.remove('selected');b.setAttribute('aria-pressed','false');});
-    syncColors();
-  });
-}
-document.querySelectorAll('[data-palette]').forEach(b=>b.onclick=()=>{
-  state.palette=b.dataset.palette;Object.assign(currentColors,paletteData[state.palette]);
-  document.querySelectorAll('[data-palette]').forEach(other=>{const active=other===b;other.classList.toggle('selected',active);other.setAttribute('aria-pressed',active);});
-  $('palette-name').textContent=currentColors.name;syncColors();
-});
 
 function updateMetalFinish(){
   const profile=metalPresets[state.metal];
   document.querySelectorAll('[data-metal]').forEach(button=>{const active=button.dataset.metal===state.metal;button.classList.toggle('selected',active);button.setAttribute('aria-pressed',String(active));});
-  $('paint-toggle').classList.toggle('selected',state.painted);
+  $('paint-toggle').classList.toggle('selected',state.painted&&(!models.active||state.modelAppearance==='paint'));
   $('paint-enabled').checked=state.painted;
   uniforms.uPainted.value=Number(state.painted);
   uniforms.uPatina.value=profile.patina;
@@ -210,17 +191,12 @@ function updateMetalFinish(){
   state.flakeFactor=state.painted?1:profile.bareFlaking;
   $('metal-symbol').textContent=profile.symbol;
   $('metal-name').textContent=profile.name.toUpperCase();
-  $('corrosion-label').textContent=profile.finish;
-  for(const field of ['paint','undercoat'])$('color-'+field).disabled=!state.painted;
-  $('scene').setAttribute('aria-label',`${state.painted?'Painted':'Bare'} ${profile.name.toLowerCase()} ${shapeNames[state.shape].toLowerCase()} developing ${profile.finish.toLowerCase()}. Tap the specimen to bounce. Drag loose flakes to move them; tap to remove. Drag elsewhere to orbit, scroll to zoom, or use the arrow keys.`);
+  $('scene').setAttribute('aria-label',`${state.painted?'Painted':'Bare'} ${profile.name.toLowerCase()} ${(models.active?'model':shapeNames[state.shape].toLowerCase())} developing ${profile.finish.toLowerCase()}. Tap the specimen to bounce. Drag loose flakes to move them; tap to remove. Drag elsewhere to orbit, scroll to zoom, or use the arrow keys.`);
   document.querySelector('[data-age="0"]').textContent=state.painted?'Fresh paint':'Fresh metal';
-  $('restart').innerHTML='<svg><use href="#i-reset"></use></svg>'+(state.painted?'Repaint & restart':'Polish & restart');
 }
 function selectMetal(metal){
   state.metal=metal;
   Object.assign(currentColors,metalPresets[state.metal].colors);
-  state.palette='custom';$('palette-name').textContent=metalPresets[state.metal].name+' / natural';
-  document.querySelectorAll('[data-palette]').forEach(b=>{b.classList.remove('selected');b.setAttribute('aria-pressed','false');});
   updateMetalFinish();syncColors();repaint(!reducedMotion);
 }
 document.querySelectorAll('[data-metal]').forEach(button=>button.addEventListener('click',()=>selectMetal(button.dataset.metal)));
@@ -230,14 +206,23 @@ function showPaintOptions(open){
   $('paint-toggle').setAttribute('aria-expanded',String(open));
 }
 $('paint-toggle').addEventListener('click',()=>showPaintOptions($('paint-options').hidden));
+function setModelAppearance(value){
+  state.modelAppearance=value;$('model-paint-mode').value=value;
+  if(value==='paint')state.painted=true;
+  state.age=0;state.exploded=0;setLayerView(0);
+  updateMetalFinish();models.setAppearance();repaint(!reducedMotion);
+}
+$('model-paint-mode').addEventListener('change',event=>setModelAppearance(event.target.value));
 $('paint-enabled').addEventListener('change',event=>{
   state.painted=event.target.checked;
   updateMetalFinish();repaint(!reducedMotion);
 });
 $('picker-paint-color').addEventListener('input',event=>{
+  if(models.active&&state.modelAppearance!=='paint')setModelAppearance('paint');
   if(!state.painted){state.painted=true;updateMetalFinish();repaint(!reducedMotion);}
-  $('color-paint').value=event.target.value;
-  $('color-paint').dispatchEvent(new Event('input'));
+  currentColors.pink=event.target.value;
+  currentColors.pinkLight=lightPaintColor(event.target.value);
+  syncColors();
 });
 document.addEventListener('click',event=>{
   if(!$('paint-options').contains(event.target)&&!$('paint-toggle').contains(event.target))showPaintOptions(false);
@@ -247,6 +232,7 @@ document.addEventListener('keydown',event=>{
 });
 
 function changeShape(shape){
+  models.clear();
   state.shape=shape;
   document.querySelectorAll('[data-shape]').forEach(button=>{
     const selected=button.dataset.shape===shape;
@@ -260,23 +246,29 @@ function changeShape(shape){
 }
 
 document.querySelectorAll('[data-shape]').forEach(button=>button.addEventListener('click',()=>{
-  if(button.dataset.shape===state.shape)return;
+  if(button.dataset.shape===state.shape&&!models.active){models.clear();return;}
   interactions.cancel();changeShape(button.dataset.shape);
   state.age=0;state.exploded=0;setLayerView(0);surface.rebuild();paintHold=2.6;
   updateMetalFinish();updateAgeUI();setPlaying(!reducedMotion);
   renderer.shadowMap.needsUpdate=true;renderDirty=true;
 }));
 
-$('random-shape').addEventListener('click',()=>$('new-specimen').click());
+const sampleNames={horse:'Horse statue',glasses:'Glasses',duck:'Duck'};
+$('horse-shape').addEventListener('click',async()=>{
+  interactions.cancel();
+  if(await models.loadSample('horse',sampleNames.horse))repaint(!reducedMotion);
+});
 
-$('new-specimen').onclick=()=>{
+$('random-shape').onclick=async()=>{
   interactions.cancel();
   const previousSeed=state.seed;
   state.seed=Math.floor(Math.random()*90000)+10000;
   if(state.seed===previousSeed)state.seed=10000+(state.seed-9999)%90000;
   uniforms.uSeed.value=state.seed*.017;
-  const shapes=Object.keys(shapeNames).filter(shape=>shape!==state.shape);
-  changeShape(shapes[Math.floor(Math.random()*shapes.length)]);
+  const selected=models.active?models.sampleKey:state.shape;
+  const shapes=[...Object.keys(shapeNames),...Object.keys(sampleNames)].filter(shape=>shape!==selected);
+  const nextShape=shapes[Math.floor(Math.random()*shapes.length)];
+  if(sampleNames[nextShape])models.clear();else changeShape(nextShape);
   const metals=Object.keys(metalPresets).filter(metal=>metal!==state.metal);
   state.metal=metals[Math.floor(Math.random()*metals.length)];
   state.painted=Math.random()<.5;
@@ -290,16 +282,18 @@ $('new-specimen').onclick=()=>{
   const hue=Math.random();
   currentColors.pink='#'+new THREE.Color().setHSL(hue,.3+Math.random()*.45,.35+Math.random()*.32).getHexString();
   currentColors.teal='#'+new THREE.Color().setHSL((hue+.2+Math.random()*.4)%1,.15+Math.random()*.35,.25+Math.random()*.35).getHexString();
-  currentColors.pinkLight=deriveColor(currentColors.pink,'light');
-  currentColors.tealLight=deriveColor(currentColors.teal,'light');
-  currentColors.name=profile.name+' / randomized';
-  state.palette='custom';$('palette-name').textContent=currentColors.name;
-  document.querySelectorAll('[data-palette]').forEach(button=>{button.classList.remove('selected');button.setAttribute('aria-pressed','false');});
+  currentColors.pinkLight=lightPaintColor(currentColors.pink);
+  currentColors.tealLight=lightPaintColor(currentColors.teal);
   state.age=0;state.exploded=0;setLayerView(0);
   updateMetalFinish();syncColors();surface.rebuild();paintHold=2.6;
-  $('seed-value').textContent=`SEED ${state.seed}`;$('specimen-number').textContent=String(state.seed).slice(0,3);
-  updateAgeUI();setPlaying(!reducedMotion);
-  toast(`${state.painted?'Painted':'Bare'} ${profile.name.toLowerCase()} ${shapeNames[state.shape].toLowerCase()}. New colours, new pattern.`);
+  $('specimen-number').textContent=String(state.seed).slice(0,3);
+  updateAgeUI();
+  if(sampleNames[nextShape]) {
+    setPlaying(false);
+    if(!await models.loadSample(nextShape,sampleNames[nextShape]))return;
+  }
+  setPlaying(!reducedMotion);
+  toast(`${state.painted?'Painted':'Bare'} ${profile.name.toLowerCase()} ${(sampleNames[nextShape]??shapeNames[state.shape]).toLowerCase()}. New colours, new pattern.`);
 };
 
 $('scene').addEventListener('keydown',e=>{if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)){e.preventDefault();const offset=camera.position.clone().sub(controls.target);const spherical=new THREE.Spherical().setFromVector3(offset);if(e.key==='ArrowLeft')spherical.theta-=.1;if(e.key==='ArrowRight')spherical.theta+=.1;if(e.key==='ArrowUp')spherical.phi=Math.max(.15,spherical.phi-.1);if(e.key==='ArrowDown')spherical.phi=Math.min(Math.PI-.15,spherical.phi+.1);camera.position.copy(controls.target).add(new THREE.Vector3().setFromSpherical(spherical));controls.update();}});
@@ -322,10 +316,11 @@ function animate(time){
     }
   }
   if(Math.abs(state.exploded-desiredExplode)>.001){state.exploded=THREE.MathUtils.damp(state.exploded,desiredExplode,7,dt);geometryDirty=true;}
-  if((geometryDirty&&time-lastGeometryTime>45)||(surface.pendingReleaseCount&&time-lastGeometryTime>100)){surface.updateAttached();lastGeometryTime=time;}
+  if(!models.active&&((geometryDirty&&time-lastGeometryTime>45)||(surface.pendingReleaseCount&&time-lastGeometryTime>100))){surface.updateAttached();lastGeometryTime=time;}
   // Physics continues independently of the aging timeline and playback speed.
   if(interactions.update(dt)){renderDirty=true;renderer.shadowMap.needsUpdate=true;}
-  physics.step(dt);surface.syncPhysics();
+  if(!models.active){physics.step(dt);surface.syncPhysics();}
+  if(models.update(dt)){renderDirty=true;renderer.shadowMap.needsUpdate=true;}
   uiElapsed+=dt;if(uiElapsed>.15){if(state.age!==lastUIAge){updateAgeUI();lastUIAge=state.age;}uiElapsed=0;}
   const geometry=surface.mesh.geometry;
   // Camera orbit and shader-only aging do not change the light-space geometry.
@@ -339,12 +334,3 @@ function animate(time){
   if(firstFrame){firstFrame=false;$('loading').classList.add('complete');setTimeout(()=>$('loading').remove(),700);}
 }
 requestAnimationFrame(animate);
-
-function showSettings(open){
-  $('settings-panel').hidden=!open;
-  $('settings-toggle').setAttribute('aria-expanded',String(open));
-  if(open)$('settings-close').focus();else $('settings-toggle').focus();
-}
-$('settings-toggle').addEventListener('click',()=>showSettings($('settings-panel').hidden));
-$('settings-close').addEventListener('click',()=>showSettings(false));
-document.addEventListener('keydown',event=>{if(event.key==='Escape'&&!$('settings-panel').hidden)showSettings(false);});
