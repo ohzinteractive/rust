@@ -127,7 +127,7 @@ function rewriteGrammar() {
   }
   return symbols;
 }
-function lsystemSprig(store, base, angle, step, phrase, random, vitality, phase) {
+function lsystemSprig(store, base, angle, step, phrase, random) {
   let x = base.x;
   let y = base.y;
   let heading = angle;
@@ -171,7 +171,7 @@ function geometry(length, spread, id, phrase) {
     const axisPos = axis(t);
     const envelope = Math.pow(Math.sin(t * Math.PI), 0.77);
     const breakup = 0.77 + 0.44 * random();
-    const luminance = 0.6 + 0.38 * Math.sin(t * Math.PI) + 0.22 * random();
+    random(); // Preserve the existing seeded barb geometry after removing the unused luminance.
     for (const side of [-1, 1]) {
       const reach = spread * envelope * breakup * (0.85 + random() * 0.3) * (side === 1 ? 1 : 0.91);
       const yLean = reach * (0.34 + 0.2 * t) * (side === 1 ? 1.0 : 0.83);
@@ -207,7 +207,7 @@ function geometry(length, spread, id, phrase) {
         const sprigBase = barbPoint(0.39 + random() * 0.29);
         const heading = side === 1 ? (0.32 + random() * 0.64) : (Math.PI - 0.32 - random() * 0.64);
         const step = (0.036 + 0.037 * envelope) * (spread / 1.15);
-        lsystemSprig(store, sprigBase, heading, step, phrase, random, luminance * 0.58, twist + t * 5);
+        lsystemSprig(store, sprigBase, heading, step, phrase, random);
       }
       if (row % 6 === 0 && random() > 0.45) {
         const p = barbPoint(0.67 + random() * 0.3);

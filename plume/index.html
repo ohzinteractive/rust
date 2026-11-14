@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#05070a" />
+  <title>plume — spline feather study</title>
+  <style>
+    :root {
+      --ivory: #f4e8d3;
+      --muted: #afa495;
+      --gold: #e6ba83;
+      --line: rgba(242,209,160,.16);
+      --panel: rgba(11,13,17,.72);
+      color-scheme: dark;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #040609; }
+    body {
+      font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--ivory);
+    }
+    #app {
+      position: relative;
+      isolation: isolate;
+      width: 100%;
+      height: 100%;
+      height: 100dvh;
+      overflow: hidden;
+      background: radial-gradient(ellipse at 62% 35%, #1b1b1c 0%, #0d1015 24%, #070a0e 50%, #030509 88%);
+    }
+    #scene {
+      position: absolute;
+      inset: 0;
+      display: block;
+      width: 100%;
+      height: 100%;
+      touch-action: none;
+      z-index: 1;
+    }
+    .light {
+      position: absolute;
+      pointer-events: none;
+      z-index: 2;
+      mix-blend-mode: screen;
+      background: linear-gradient(100deg, transparent 29%, rgba(241,221,185,.025) 43%, rgba(237,213,164,.06) 49%, transparent 60%);
+      filter: blur(22px);
+      transform: rotate(-18deg);
+      width: 70vw;
+      height: 170vh;
+      left: 47%;
+      top: -36%;
+    }
+    .grain {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      z-index: 3;
+      opacity: .37;
+      background: radial-gradient(ellipse at 48% 43%, transparent 30%, rgba(0,0,0,.42) 91%);
+    }
+    .panel {
+      position: absolute;
+      z-index: 5;
+      left: 24px;
+      top: 24px;
+      width: min(360px, calc(100vw - 48px));
+      max-height: calc(100dvh - 48px);
+      overflow: auto;
+      padding: 18px 18px 16px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--panel);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      box-shadow: 0 16px 70px rgba(0,0,0,.24);
+    }
+    .panel-heading {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 14px;
+      padding-bottom: 12px;
+      margin-bottom: 14px;
+      border-bottom: 1px solid rgba(239,207,168,.13);
+    }
+    .title-wrap h1 {
+      margin: 0;
+      font: italic 38px Georgia, "Times New Roman", serif;
+      line-height: .92;
+      letter-spacing: -.06em;
+      font-weight: 400;
+      color: #f6e8d6;
+      text-shadow: 0 0 35px rgba(241,194,138,.16);
+    }
+    .title-wrap p {
+      margin: 8px 0 0;
+      color: #a59c91;
+      font-size: 11px;
+      letter-spacing: .02em;
+    }
+    .heading-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 7px; }
+    .heading-actions a { color: var(--muted); font-size: 10px; text-decoration: none; }
+    .heading-actions a:hover { color: var(--ivory); }
+    #toggleControls { border: 0; background: transparent; padding: 1px 0; color: #b7a18a; text-transform: uppercase; letter-spacing: .12em; font-size: 9px; }
+    #toggleControls:hover { color: #f3d4a9; }
+    .panel.collapsed > :not(.panel-heading) { display: none; }
+    .panel.collapsed { max-height: none; overflow: visible; }
+    .panel.collapsed .panel-heading { margin-bottom: 0; padding-bottom: 0; border-bottom: 0; }
+    .count {
+      color: #d8b082;
+      font: 600 11px ui-monospace, SFMono-Regular, monospace;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .section-label {
+      color: #e2caab;
+      text-transform: uppercase;
+      letter-spacing: .2em;
+      font-size: 10px;
+      font-weight: 600;
+      margin: 0 0 10px;
+    }
+    .control { margin-bottom: 13px; }
+    .label-row {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 7px;
+    }
+    .label-row label {
+      font-size: 10px;
+      letter-spacing: .10em;
+      color: #cbbba8;
+      text-transform: uppercase;
+    }
+    .label-row output {
+      font: 10px ui-monospace, SFMono-Regular, monospace;
+      color: #dcae76;
+    }
+    input[type=range] {
+      appearance: none;
+      -webkit-appearance: none;
+      cursor: pointer;
+      width: 100%;
+      height: 16px;
+      background: transparent;
+      margin: 0;
+      touch-action: pan-x;
+    }
+    input[type=range]::-webkit-slider-runnable-track { height: 2px; background: linear-gradient(90deg, #d8ad76, #736150 88%, #53483d); }
+    input[type=range]::-moz-range-track { height: 2px; background: #b68a5b; }
+    input[type=range]::-webkit-slider-thumb {
+      appearance: none;
+      -webkit-appearance: none;
+      margin-top: -5px;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: #ead3b1;
+      border: 2px solid #4b3828;
+      box-shadow: 0 0 10px #bd87546b;
+    }
+    input[type=range]::-moz-range-thumb {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #ead3b1;
+      border: 2px solid #4b3828;
+    }
+    .grid-two {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px 12px;
+      margin-bottom: 4px;
+    }
+    .field {
+      margin-bottom: 10px;
+    }
+    .field label {
+      display: block;
+      font-size: 10px;
+      letter-spacing: .10em;
+      color: #cbbba8;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .field input[type=text] {
+      width: 100%;
+      border: 1px solid rgba(226,185,130,.25);
+      background: rgba(255,255,255,.03);
+      color: #f2ddc1;
+      border-radius: 5px;
+      padding: 10px 11px;
+      font: 12px ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    .rule-block {
+      border-top: 1px solid rgba(239,207,168,.13);
+      margin-top: 14px;
+      padding-top: 14px;
+    }
+    .mini {
+      margin: 8px 0 0;
+      color: #8f8579;
+      font-size: 10px;
+      line-height: 1.45;
+    }
+    .buttons {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 14px;
+    }
+    button {
+      cursor: pointer;
+      appearance: none;
+      font: 600 10px ui-sans-serif, system-ui, sans-serif;
+      letter-spacing: .06em;
+      border-radius: 5px;
+      padding: 12px 10px;
+      transition: background .2s, border-color .2s, transform .2s;
+    }
+    button:active { transform: translateY(1px); }
+    #regenerate { background: #dcb789; border: 1px solid #efcca0; color: #24201c; }
+    #regenerate:hover { background: #f3d4a9; }
+    #addPoint { background:rgba(228,185,130,.12); border:1px solid rgba(226,185,130,.47); color:#f1d7b3; grid-column:1 / -1; }
+    #addPoint:hover { background:rgba(227,194,153,.19); }
+    #resetSpline { background: rgba(227,194,153,.04); border: 1px solid rgba(226,185,130,.35); color: #ead2b3; }
+    #resetSpline:hover { background: rgba(227,194,153,.11); }
+    .hint {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      color: #a39c90;
+      font-size: 10px;
+      line-height: 1.5;
+      margin: 13px 0 0;
+    }
+    .hint .dot {
+      height: 5px;
+      width: 5px;
+      flex: 0 0 5px;
+      background: #e4bd84;
+      border-radius: 50%;
+      box-shadow: 0 0 8px #d7a56c;
+      margin-top: 5px;
+    }
+    #loading {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      z-index: 6;
+      color: #e4c5a1;
+      font: italic 20px Georgia, serif;
+      letter-spacing: .04em;
+      text-shadow: 0 0 18px #ab7544;
+      pointer-events: none;
+      transition: opacity .9s;
+    }
+    #loading.hidden { opacity: 0; }
+    @media (max-width: 760px) {
+      .panel {
+        left: 12px;
+        top: 12px;
+        width: calc(100vw - 24px);
+        max-height: min(62vh, calc(100dvh - 24px));
+        padding: 15px 15px 14px;
+      }
+      .title-wrap h1 { font-size: 32px; }
+      .grid-two { grid-template-columns: 1fr; }
+      .buttons { grid-template-columns: 1fr; }
+    }
+    @media (prefers-reduced-motion: reduce) { button { transition: none; } }
+  </style>
+</head>
+<body>
+<div id="app">
+  <canvas id="scene" aria-label="Interactive spline-driven L-system feather artwork"></canvas>
+  <div class="light"></div>
+  <div class="grain"></div>
+
+  <section id="controlPanel" class="panel" aria-label="Spline feather controls">
+    <div class="panel-heading">
+      <div class="title-wrap">
+        <h1>plume.</h1>
+        <p>spline-based L-system feather study</p>
+      </div>
+      <div class="heading-actions">
+        <a href="../">← OXIDE</a>
+        <div class="count" id="featherCount">00 feathers</div>
+        <button id="toggleControls" type="button" aria-expanded="true" aria-controls="controlPanel">Hide controls −</button>
+      </div>
+    </div>
+
+    <p class="section-label">Feather system</p>
+    <div class="grid-two">
+      <div class="control">
+        <div class="label-row"><label for="depth">Branch generations</label><output id="depthValue">3</output></div>
+        <input id="depth" type="range" min="1" max="5" step="1" value="3" />
+      </div>
+      <div class="control">
+        <div class="label-row"><label for="density">Fiber density</label><output id="densityValue">78%</output></div>
+        <input id="density" type="range" min="35" max="120" step="1" value="78" />
+      </div>
+      <div class="control">
+        <div class="label-row"><label for="spacing">Spline spacing</label><output id="spacingValue">0.95</output></div>
+        <input id="spacing" type="range" min="0.45" max="1.8" step="0.05" value="0.95" />
+      </div>
+      <div class="control">
+        <div class="label-row"><label for="angle">Branch angle</label><output id="angleValue">26°</output></div>
+        <input id="angle" type="range" min="8" max="60" step="1" value="26" />
+      </div>
+      <div class="control">
+        <div class="label-row"><label for="wind">Breeze</label><output id="windValue">30%</output></div>
+        <input id="wind" type="range" min="0" max="100" step="1" value="30" />
+      </div>
+      <div class="control">
+        <div class="label-row"><label for="glow">Glow</label><output id="glowValue">75%</output></div>
+        <input id="glow" type="range" min="0" max="140" step="1" value="75" />
+      </div>
+    </div>
+
+    <div class="rule-block">
+      <p class="section-label">Editable grammar</p>
+      <div class="field">
+        <label for="axiom">Axiom</label>
+        <input id="axiom" type="text" value="X" spellcheck="false" />
+      </div>
+      <div class="field">
+        <label for="ruleX">Rule for X</label>
+        <input id="ruleX" type="text" value="F[+X][-X]" spellcheck="false" />
+      </div>
+      <div class="field">
+        <label for="ruleF">Rule for F</label>
+        <input id="ruleF" type="text" value="FF" spellcheck="false" />
+      </div>
+      <p class="mini">Use <strong>F + - [ ]</strong>. Double-click a place on the curve to insert a point, or use the Add spline point button. The spacing slider sets the distance between feathers.</p>
+    </div>
+
+    <div class="buttons">
+      <button id="addPoint" type="button">+ &nbsp; Add spline point <span id="pointCount">(5)</span></button>
+      <button id="regenerate" type="button">↻ &nbsp;Regenerate</button>
+      <button id="resetSpline" type="button">⌁ &nbsp;Reset spline</button>
+    </div>
+
+    <p class="hint"><span class="dot"></span><span>Drag spline handles to reshape · Double-click the curve to add points · Press and hold empty space for wandering wind, release to reform · In Three.js, drag empty space to orbit.</span></p>
+  </section>
+
+  <div id="loading" role="status">growing the plume...</div>
+</div>
+<script defer src="../plume-lsystem/boot.js"></script>
+</body>
+</html>

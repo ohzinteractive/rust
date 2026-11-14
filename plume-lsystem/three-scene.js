@@ -83,7 +83,6 @@ const scratch = new THREE.Vector3();
 const clock = new THREE.Clock();
 
 function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
-function lerp(a, b, t) { return a + (b - a) * t; }
 function lineObject(store, alpha) {
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(store.p, 3));
