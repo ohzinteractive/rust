@@ -54,7 +54,7 @@ export function createCourtyardRitual({parent,canStand}){
     }
     return out;
   }
-  environment.target=(f,time,out)=>{target(f.id,local).applyMatrix4(parent.matrixWorld);out.copy(local);};
+  environment.target=(f,_time,out)=>{target(f.id,local).applyMatrix4(parent.matrixWorld);out.copy(local);};
   flight.setEnvironment(environment);
   function frame(){parent.updateWorldMatrix(true,false);environment.sync();inverse.copy(parent.matrixWorld).invert();parent.getWorldQuaternion(frameRotation);inverseRotation.copy(frameRotation).invert();}
   function launchTo(count){

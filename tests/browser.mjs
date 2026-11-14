@@ -5,9 +5,10 @@ import {spawn} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import assert from 'node:assert/strict';
 import {checkMazeFeathers} from './maze-feathers-browser.mjs';
+import {checkCloth,checkClothRopes,checkDelayedWrapping,checkHorseClothContacts} from './cloth-browser.mjs';
 import {checkMazeMaps,checkCourtyardShortcut} from './maze-maps-browser.mjs';
 const root=fileURLToPath(new URL('../',import.meta.url)).replace(/\/$/,'');
-const server=createServer(async(req,res)=>{try {const path=decodeURIComponent(new URL(req.url,'http://localhost').pathname); let data=await readFile(root+(path==='/'?'/index.html':path));if(path==='/app.js')data=data.toString()+'\nwindow.peelDebug={models,state,scene,feathers,core,surface,renderer,camera,controls,featherRenderer,mazeNavigation,get idle(){return !renderDirty}};';res.setHeader('Content-Type',path.endsWith('.js')?'text/javascript':path.endsWith('.css')?'text/css':path.endsWith('.woff2')?'font/woff2':'text/html');res.end(data);}catch{res.writeHead(404);res.end();}});
+const server=createServer(async(req,res)=>{try {const path=decodeURIComponent(new URL(req.url,'http://localhost').pathname); let data=await readFile(root+(path==='/'?'/index.html':path));if(path==='/app.js')data=data.toString()+'\nwindow.peelDebug={models,state,scene,cloth,feathers,core,surface,renderer,camera,controls,featherRenderer,mazeNavigation,get idle(){return !renderDirty}};';res.setHeader('Content-Type',path.endsWith('.js')?'text/javascript':path.endsWith('.css')?'text/css':path.endsWith('.woff2')?'font/woff2':'text/html');res.end(data);}catch{res.writeHead(404);res.end();}});
 await new Promise(r=>server.listen(8765,'127.0.0.1',r));
 const browser=spawn(process.env.BROWSER_PATH || '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser',['--headless','--no-first-run','--no-default-browser-check','--disable-background-networking','--use-angle=swiftshader','--enable-unsafe-swiftshader','--remote-debugging-port=9225','--user-data-dir=/private/tmp/oxide-qa-browser','about:blank'],{stdio:'ignore'});
 let ws;
@@ -25,7 +26,49 @@ try{
  let loaded=false;for(let i=0;i<100;i++){await delay(200);loaded=await run("document.readyState==='complete'&&!document.getElementById('loading')");if(loaded||errors.length)break;}
  assert.equal(errors.length,0,JSON.stringify(errors));assert(loaded,'Scene did not finish loading');
  assert(await run("document.getElementById('webgl-error').hidden"));
- if(process.argv.includes('--ritual-only')){
+ if(process.argv.includes('--cloth-fabrics-only')){
+   for(const mobile of [false,true]){
+     if(mobile)await call('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
+     await run("document.querySelector('[data-shape=sphere]').click();document.getElementById('cloth-material').click();if(document.getElementById('cloth-options').hidden)document.getElementById('cloth-settings-toggle').click()");
+     const layout=await run("(()=>{const r=document.getElementById('cloth-options').getBoundingClientRect();return {left:r.left,top:r.top,right:r.right,bottom:r.bottom}})()");
+     assert(layout.left>=0&&layout.left<50&&layout.top>=0&&layout.right<= (mobile?390:1050),'Left settings panel fits the viewport: '+JSON.stringify(layout));
+     await run('for(let i=0;i<180;i++)peelDebug.cloth.advance(1/60)');
+     for(const fabric of ['wool','duvet','linen']){
+       const result=await run(`(()=>{const cloth=peelDebug.cloth,sim=cloth.simulation,time=sim.time;document.querySelector('[name=cloth-fabric][value=${fabric}]').click();for(let i=0;i<30;i++)cloth.advance(1/60);peelDebug.featherRenderer.render(peelDebug.scene,peelDebug.camera);return {fabric:peelDebug.state.clothSettings.fabric,same:sim===cloth.simulation,time:cloth.simulation.time>time,finite:cloth.simulation.positions.every(Number.isFinite),lining:!!cloth.mesh.getObjectByName('Fabric reverse'),hem:cloth.mesh.getObjectByName('Fabric hem').geometry.attributes.position.count};})()`);
+       assert(result.fabric===fabric&&result.same&&result.time&&result.finite&&result.lining&&result.hem>0,JSON.stringify(result));
+       const shot=await call('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});await writeFile(`/private/tmp/oxide-fabric-${fabric}${mobile?'-mobile':''}.png`,Buffer.from(shot.result.data,'base64'));
+     }
+     await run("document.getElementById('cloth-settings-close').click()");assert(await run("document.getElementById('cloth-options').hidden&&document.getElementById('cloth-settings-toggle').getAttribute('aria-expanded')==='false'"));
+     await run("document.getElementById('cloth-settings-toggle').click();document.querySelector('[name=cloth-fabric][value=duvet]').click();document.getElementById('cloth-redrape').click()");
+     assert(await run("peelDebug.cloth.fabric.name==='Two-sided duvet'"),'Redrape preserves fabric choice');
+     await run("document.querySelector('[data-metal=iron]').click()");assert(await run("document.getElementById('cloth-controls').hidden&&peelDebug.cloth.mesh===null"));
+   }
+   assert.equal(errors.length,0,JSON.stringify(errors));console.log('PASS: left cloth panel, three fabric finishes, two-sided shell, live switching and redrape on desktop/mobile.');
+ }else if(process.argv.includes('--horse-cloth-only')){
+   await checkHorseClothContacts({run,call,delay,assert});
+   await call('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
+   await checkHorseClothContacts({run,call,delay,assert,mobile:true});
+   assert.equal(errors.length,0,JSON.stringify(errors));
+   console.log('PASS: two-rope horse cloth contacts against actual triangles from four viewpoints on desktop/mobile.');
+ }else if(process.argv.includes('--wrapping-only')){
+   await checkDelayedWrapping({run,call,assert});
+   await call('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
+   await checkDelayedWrapping({run,call,assert,mobile:true});
+   assert.equal(errors.length,0,JSON.stringify(errors));
+   console.log('PASS: delayed, sequential cloth wrapping and stable two-rope cube contacts on desktop/mobile.');
+ }else if(process.argv.includes('--rope-only')){
+   await checkClothRopes({run,call,delay,assert});
+   await call('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
+   await checkClothRopes({run,call,delay,assert,mobile:true});
+   assert.equal(errors.length,0,JSON.stringify(errors));
+   console.log('PASS: adjustable cloth ropes gather fabric on sphere, pill and horse, including multiple ties, redrape and removal on desktop/mobile.');
+ }else if(process.argv.includes('--cloth-only')){
+   await checkCloth({run,call,delay,assert});
+   await call('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
+   await checkCloth({run,call,delay,assert,mobile:true});
+   assert.equal(errors.length,0,JSON.stringify(errors));
+   console.log('PASS: cloth draping on sphere, pill and horse, pause/redrape and material switching on desktop/mobile.');
+ }else if(process.argv.includes('--ritual-only')){
    await checkCourtyardShortcut({run,assert});
    await call('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
    await checkCourtyardShortcut({run,assert});

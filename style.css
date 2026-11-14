@@ -64,7 +64,7 @@
 .specimen-dock .age-labels{margin:3px -3px -2px}
 .specimen-dock .age-labels button{font-size:7px;padding:2px 3px}
 .specimen-dock .material-picker{padding:5px 6px;gap:4px;border-radius:8px;background:#20261fea}
-.specimen-dock .picker-row{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:4px}
+.specimen-dock .picker-row{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}
 .specimen-dock .shape-row{grid-template-columns:repeat(8,minmax(0,1fr));padding-top:4px}
 .specimen-dock .material-swatch{min-width:0;padding:2px;gap:2px;font-size:7px;border-radius:5px}
 .specimen-dock .metal-sample,.specimen-dock .paint-bucket svg{width:20px;height:20px}
@@ -118,7 +118,7 @@ html,body{width:100%;height:100%;overflow:hidden}
 #model-paint-option select{max-width:150px;padding:5px;border:1px solid var(--line);border-radius:5px;background:#20271c;color:var(--text);font:inherit}
 #model-paint-option[hidden],#basic-paint-option[hidden]{display:none}
 
-.specimen-dock .picker-row:not(.shape-row){grid-template-columns:repeat(6,minmax(0,1fr))}
+.specimen-dock .picker-row:not(.shape-row){grid-template-columns:repeat(7,minmax(0,1fr))}
 .specimen-dock .feather-swatch svg{width:20px;height:20px;color:#e9c28b}
 .specimen-dock .feather-controls{padding:10px 14px;z-index:5}
 .specimen-dock.feather-menu-open{z-index:13}
@@ -194,3 +194,53 @@ html,body{width:100%;height:100%;overflow:hidden}
   .maze-fpv-top>div:last-child{flex-wrap:wrap;justify-content:flex-end}
   .maze-fpv-active>.feather-options{right:16px;top:158px;max-height:calc(100dvh - 320px);max-width:calc(100vw - 32px)}
 }
+
+.cloth-controls{color:var(--text)}
+.cloth-heading{display:flex;align-items:center;gap:8px;font:10px var(--mono);margin-bottom:10px}
+.cloth-heading strong{font-weight:400;margin-right:auto;letter-spacing:1px}
+.cloth-heading button{padding:5px 9px;border:1px solid var(--line);border-radius:4px;font:10px var(--sans)}
+.cloth-heading button:hover{border-color:#e5d5b0;background:#e5d5b011}
+.cloth-breeze{display:flex;align-items:center;gap:12px;font:10px var(--sans)}
+.cloth-breeze input{min-width:0;flex:1;accent-color:#e5d5b0}
+.cloth-controls p{font:9px var(--sans);color:var(--muted);margin:6px 0 0}
+@media(max-width:640px){.specimen-dock .cloth-controls{grid-row:2}}
+
+.cloth-hold{display:flex;gap:6px;align-items:center;margin-top:7px;font:10px var(--sans);color:var(--muted)}
+.cloth-hold input{accent-color:#e5d5b0}
+
+.cloth-rope-heading{display:flex;align-items:center;justify-content:space-between;border-top:1px solid var(--line);padding-top:7px;margin-top:8px;font:9px var(--mono);letter-spacing:1px}
+.cloth-rope-heading button{padding:5px 8px;border:1px solid var(--line);border-radius:4px;font:10px var(--sans);letter-spacing:0}
+.cloth-rope-heading button:hover{border-color:#e5d5b0;background:#e5d5b011}
+#cloth-rope-list{max-height:150px;overflow:auto;overscroll-behavior:contain}
+.cloth-rope-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) 24px;gap:12px;align-items:center;padding-top:9px}
+.cloth-rope-row label{min-width:0;font:9px var(--sans);color:var(--muted)}
+.cloth-rope-row label>span{display:flex;justify-content:space-between;gap:5px}
+.cloth-rope-row output{color:#e5d5b0;font:9px var(--mono)}
+.cloth-rope-row input{width:100%;margin-top:5px;accent-color:#b79869}
+.cloth-rope-row button{font-size:19px;color:var(--muted);border-radius:4px}
+.cloth-rope-row button:hover{background:#ffffff0a;color:var(--text)}
+
+.cloth-rope-status{grid-column:1/-1;font:9px var(--sans);color:var(--muted)}
+.cloth-rope-row:has(.cloth-rope-status){row-gap:5px}
+
+/* Match the feather settings: a narrow, scrollable panel above the left dock. */
+.specimen-dock .cloth-controls{padding:10px 14px;z-index:5}
+.specimen-dock.cloth-menu-open{z-index:13}
+.cloth-options .cloth-heading{margin:0 0 20px;gap:8px}
+.cloth-options .cloth-heading button{flex:1;padding:9px;font-size:11px}
+.cloth-options .cloth-breeze{display:grid;gap:12px;font-size:11px;margin-bottom:18px}
+.cloth-options .cloth-hold{font-size:11px;margin-bottom:10px}
+.cloth-options p{font-size:10px;line-height:1.5}
+.cloth-options .cloth-rope-heading{margin-top:22px;padding-top:16px;font-size:10px}
+.cloth-options #cloth-rope-list{max-height:none}
+.cloth-options .cloth-rope-row{padding:16px 0;border-bottom:1px solid var(--line)}
+.cloth-options .cloth-rope-row label,.cloth-options .cloth-rope-row output,.cloth-options .cloth-rope-status{font-size:10px}
+#cloth-fabric-name{color:#e9c28b}
+.cloth-fabrics{border:0;margin:8px 0 22px;padding:0;display:grid;gap:7px;font:11px var(--sans)}
+.cloth-fabrics legend{margin-bottom:12px}
+.cloth-fabrics label{position:relative;cursor:pointer}
+.cloth-fabrics input{position:absolute;opacity:0;width:1px;height:1px}
+.cloth-fabrics span{display:block;border:1px solid var(--line);border-radius:5px;padding:10px 12px}
+.cloth-fabrics small{display:block;color:var(--muted);margin-top:5px;font-size:10px}
+.cloth-fabrics input:checked+span{border-color:#c4b68a;background:#c4b68a15}
+.cloth-fabrics input:focus-visible+span{outline:2px solid var(--orange);outline-offset:2px}
