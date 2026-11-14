@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import {createCourtyardRitual} from './courtyard-ritual.js';
 import {Reflector} from './vendor/Reflector.js';
 import {createMazePlan,getMazeLayout,mazeDimensions,mazePoint} from './maze-geometry.js';
 
@@ -357,7 +358,7 @@ export function createMazeInterior({group,floor,roof,canStand}){
     ornaments[i].forEach((matrix,index)=>mesh.setMatrixAt(index,matrix));mesh.computeBoundingSphere();decorations.add(mesh);
   }
 
-  const mirror=new Reflector(floor.geometry,{textureWidth:768,textureHeight:768,color:0x888d99,multisample:0,clipBias:.00001});
+  const mirror=new Reflector(floor.geometry,{textureWidth:768,textureHeight:768,color:0x727786,multisample:0,clipBias:.00001});
   mirror.name='Mirror floor';
   // Reuse the walking mesh for sampling and picking, and render its material
   // through the reflection helper so its floor/ceiling API remains unchanged.
@@ -381,9 +382,10 @@ export function createMazeInterior({group,floor,roof,canStand}){
       renderer.setViewport(viewport);renderer.setScissor(scissor);renderer.setScissorTest(scissorTest);
     }
   };
-  return {wallMaterial,architecture,mirror,
-    advance(dt,camera){if(!(dt>0))return false;const step=Math.min(dt,.05);skyTime.value+=step;orbit.value=(orbit.value+step*Math.PI*2/5400)%(Math.PI*2);group.updateWorldMatrix(true,false);inverse.value.copy(group.matrixWorld).invert();return true;},
+  const ritual=createCourtyardRitual({parent:group,canStand});
+  return {wallMaterial,architecture,mirror,ritual,
+    advance(dt,camera){if(!(dt>0))return false;const step=Math.min(dt,.05);skyTime.value+=step;orbit.value=(orbit.value+step*Math.PI*2/5400)%(Math.PI*2);group.updateWorldMatrix(true,false);inverse.value.copy(group.matrixWorld).invert();if(camera)ritual.advance(step,camera);return true;},
     setReflectionGroup(value){reflectionGroup=value;},
-    dispose(){mirror.getRenderTarget().dispose();wallMaterial.dispose();}
+    dispose(){ritual.dispose();mirror.getRenderTarget().dispose();wallMaterial.dispose();}
   };
 }

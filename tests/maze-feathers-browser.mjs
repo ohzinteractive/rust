@@ -79,8 +79,10 @@ export async function checkMazeFeathers({run,call,delay,assert,mobile=false}){
     camera.up.set(0,1,0).transformDirection(frame.matrixWorld);
     camera.lookAt(mazePoint(goal.x+.5,goal.z-.5,.04).applyMatrix4(frame.matrixWorld));
     peelDebug.mazeNavigation.room.update(camera);
+    for(let i=0;i<900;i++)peelDebug.mazeNavigation.room.interior.advance(1/60,camera);
     peelDebug.featherRenderer.render(peelDebug.scene,camera);
   })()`);
+  assert(await run("peelDebug.mazeNavigation.room.interior.ritual.stats.total===36&&peelDebug.mazeNavigation.room.interior.ritual.heroes.count===8&&peelDebug.mazeNavigation.room.interior.ritual.ambient.count===28"),'Arrival awakens the courtyard ritual');
   const interiorShot=await call('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});
   await writeFile(`/private/tmp/oxide-space-interior${mobile?'-mobile':''}.png`,Buffer.from(interiorShot.result.data,'base64'));
   await run("document.querySelector('[data-fpv-exit]').click();document.querySelector('[data-shape=cube]').click()");

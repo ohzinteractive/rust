@@ -51,7 +51,7 @@ export function createFeatherSurface() {
   const byId=new Map(),rootCache=new Map(),sampleProjection=new THREE.Matrix4(),sampleGroupMatrix=new THREE.Matrix4();
   const viewProjection=new THREE.Matrix4(),lastViewProjection=new THREE.Matrix4(),lastGroupMatrix=new THREE.Matrix4();
   const frustum=new THREE.Frustum(),sphere=new THREE.Sphere();
-  let firstPerson=false;
+  let firstPerson=false,courtyardExclusion=null;
   const brush=createFeatherBrush(),playerPosition=new THREE.Vector3();
   let lantern=null;
   const lanternEnabled={value:0},lanternPosition=new THREE.Vector3();
@@ -347,6 +347,8 @@ export function createFeatherSurface() {
       const a=batch.geometry.attributes,visible=[];
       for(const sample of batch.userData.allAnchors){
         readPose(sample,flightPosition,flightRotation);
+        sample.slot=-1;sample.follicleSlot=-1;
+        if(courtyardExclusion&&Math.hypot(flightPosition.x-courtyardExclusion.center.x,flightPosition.z-courtyardExclusion.center.z)<courtyardExclusion.radius)continue;
         const radius=sample.scale*reach+(sample.push?.length()??0);
         sphere.center.copy(flightPosition).applyMatrix4(group.matrixWorld);sphere.radius=radius*worldSize;
         sample.slot=-1;
@@ -383,6 +385,7 @@ export function createFeatherSurface() {
   }
   return {
     group, substrate, follicleGroup,shadowUniforms,
+    setCourtyardExclusion(value){courtyardExclusion=value;viewDirty=true;},
     setSettings(values) {
       values={...values};
       for(const key of ['opacity','shadow','subsurface','branchRandomness'])if(values[key]!==undefined)values[key]=THREE.MathUtils.clamp(values[key],0,1);

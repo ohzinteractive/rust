@@ -271,6 +271,7 @@ function updateMetalFinish(){
 function refreshFeathers(){
   const active=state.material==='feathers';
   const interior=mazeNavigation?.active&&state.shape==='maze'&&!models.active;
+  feathers.setCourtyardExclusion(interior?{center:mazeNavigation.room.interior.ritual.center,radius:.44}:null);
   core.material=interior?mazeNavigation.room.interior.wallMaterial:active?feathers.substrate:coreMat;
   surface.mesh.visible=!active&&!interior;
   if(active){
@@ -284,7 +285,7 @@ function refreshFeathers(){
   renderer.shadowMap.needsUpdate=true;renderDirty=true;
 }
 function syncFeatherCountUI(){
-  const stats=feathers.stats,text=stats.viewport?`${stats.visibleCount} feathers in view`:`${stats.count} feathers`;
+  const stats=feathers.stats,ritual=mazeNavigation?.active&&mazeNavigation.walker.inCourtyard?mazeNavigation.room.interior.ritual:null,text=ritual?`${ritual.stats.total} courtyard feathers`:stats.viewport?`${stats.visibleCount} feathers in view`:`${stats.count} feathers`;
   if($('feather-count').textContent!==text)$('feather-count').textContent=text;
 }
 function leaveFeathers(){
@@ -562,7 +563,7 @@ function animate(time){
   if(models.update(dt)){if(state.material==='feathers')feathers.update();renderDirty=true;renderer.shadowMap.needsUpdate=true;}
   if(mazeNavigation.active){
     mazeNavigation.update(dt);
-    if(mazeNavigation.room.interior.advance(dt))renderDirty=true;
+    if(mazeNavigation.room.interior.advance(dt,camera))renderDirty=true;
     if(state.material==='feathers'&&feathers.interact(dt,camera))renderDirty=true;
   }
   if(state.material==='feathers'&&feathers.advance(dt,camera,controls.target))renderDirty=true;

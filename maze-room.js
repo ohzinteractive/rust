@@ -61,11 +61,12 @@ export function createMazeRoom({specimen,scene,canStand}){
       return false;
     },
     dispose(){
+      interior.dispose();
       group.removeFromParent();lantern.removeFromParent();
       const geometries=new Set(),materials=new Set();
       for(const root of [group,lantern])root.traverse(object=>{if(object.isMesh){geometries.add(object.geometry);materials.add(object.material);}});
       geometries.forEach(geometry=>geometry.dispose());materials.forEach(material=>material.dispose());
-      group.traverse(object=>{if(object.isLight)object.dispose?.();});light.dispose();interior.dispose();
+      group.traverse(object=>{if(object.isLight)object.dispose?.();});light.dispose();
     }
   };
 }

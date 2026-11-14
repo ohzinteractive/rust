@@ -75,3 +75,15 @@ test('nearby hidden feathers are prepared before a wall comes into view',()=>{
   geometry.dispose();material.dispose();
 });
 
+
+test('the courtyard clears dense feathers and follicles without losing their attachments',()=>{
+  const parent=new THREE.Group(),geometry=new THREE.PlaneGeometry(1,1),material=new THREE.MeshBasicMaterial(),mesh=new THREE.Mesh(geometry,material);parent.add(mesh);
+  const effect=createFeatherSurface();effect.setSettings({detail:.1});effect.rebuild([mesh],parent,200,7319,{viewport:true,scale:.025});
+  const camera=new THREE.PerspectiveCamera(75,1,.001,20);camera.position.z=1;camera.lookAt(0,0,0);effect.updateView(camera);
+  const count=effect.stats.visibleCount,roots=effect.stats.count;assert(count>0);
+  effect.setCourtyardExclusion({center:new THREE.Vector3(),radius:1});effect.updateView(camera);
+  assert.equal(effect.stats.visibleCount,0);assert.equal(effect.follicleGroup.children[0].count,0);
+  assert.equal(effect.stats.count,roots,'The ritual only changes rendering, preserving attachments for the overview');
+  effect.setCourtyardExclusion(null);effect.updateView(camera);assert.equal(effect.stats.visibleCount,count);
+  effect.dispose();geometry.dispose();material.dispose();
+});
