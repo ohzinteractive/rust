@@ -9,13 +9,17 @@ import { createCoreGeometry } from './core-geometry.js';
 import { createShapeGeometry, shapeNames } from './specimen-shapes.js';
 import { createSceneInteractions } from './scene-interactions.js';
 import { metalPresets, corrosionRate } from './metal-presets.js';
-import { createFeatherSurface, defaultFeatherSettings } from './feather-surface.js';
+import { createFeatherSurface } from './feather-surface.js';
+import {featherPreset1,defaultFeatherSettings,defaultFeatherDensity} from './feather-presets.js';
+import {createFeatherInteractions} from './feather-picking.js';
 import { createFeatherRenderer } from './feather-renderer.js';
+import { createMazeNavigation } from './maze-navigation.js';
+import {getMazeMap,setMazeMap,mazeMaps} from './maze-geometry.js';
 
 const $ = (id) => document.getElementById(id);
 const clamp = (x,a=0,b=1) => Math.max(a,Math.min(b,x));
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
-const state = {shape:'cube',material:'metal',featherDensity:25,metal:'iron',painted:true,modelAppearance:'paint',flakeFactor:1,age:0,moisture:.72,oxygen:.8,salt:.28,scale:2.4,peel:.68,relief:1,seed:7319,playing:!reducedMotion,rotate:!reducedMotion,speed:10,exploded:0};
+const state = {shape:'cube',mazeMap:getMazeMap(),material:'metal',featherDensity:defaultFeatherDensity,metal:'iron',painted:true,modelAppearance:'paint',flakeFactor:1,age:0,moisture:.72,oxygen:.8,salt:.28,scale:2.4,peel:.68,relief:1,seed:7319,playing:!reducedMotion,rotate:!reducedMotion,speed:10,exploded:0};
 const colorKeys=['dark','burnt','orange','gold','teal','tealLight','pink','pinkLight','metal'];
 state.featherSettings={...defaultFeatherSettings};
 const currentColors={dark:'#241610',burnt:'#70371f',orange:'#b95b28',gold:'#b28a45',teal:'#53645a',tealLight:'#7d8b72',pink:'#efc51a',pinkLight:'#f7d74b',metal:'#343936'};
@@ -87,7 +91,9 @@ const physics=createFlakePhysics({floorY,cubePosition:specimen.position,cubeQuat
 const surface=new PeelingSurface({parent:specimen,material:coatingMat,physics,state});
 const feathers=createFeatherSurface();
 const featherRenderer=createFeatherRenderer({renderer,feathers,shadowLight:key});
-const interactions=createSceneInteractions({canvas:renderer.domElement,camera,controls,core,specimen,surface,physics,enabled:()=>state.material!=='feathers',invalidate(){renderDirty=true;renderer.shadowMap.needsUpdate=true;}});
+let mazeNavigation;
+const interactions=createSceneInteractions({canvas:renderer.domElement,camera,controls,core,specimen,surface,physics,enabled:()=>state.material!=='feathers'&&!mazeNavigation?.active,invalidate(){renderDirty=true;renderer.shadowMap.needsUpdate=true;}});
+createFeatherInteractions({canvas:renderer.domElement,camera,feathers,enabled:()=>state.material==='feathers'&&!mazeNavigation?.active,invalidate(){renderDirty=true;}});
 
 // A lit ground receives the real fragments and their shadows. It is also the
 // plane used by the collision solver, so settled debris stays on the surface.
@@ -103,6 +109,7 @@ shadow.rotation.x=-Math.PI/2;shadow.position.y=floorY+.002;scene.add(shadow);
 const models=createModelImporter({scene,uniforms,state,reducedMotion,notify:toast,featherMaterial:feathers.substrate,
   invalidate(){if(state.material==='feathers')feathers.update();renderDirty=true;renderer.shadowMap.needsUpdate=true;},
   onActivate(name,peeling){
+    mazeNavigation?.exit();$('maze-enter').hidden=true;
     $('model-paint-option').hidden=false;$('basic-paint-option').hidden=true;
     if(state.modelAppearance==='paint')state.painted=true;
     updateMetalFinish();
@@ -119,6 +126,7 @@ const models=createModelImporter({scene,uniforms,state,reducedMotion,notify:toas
     $('model-paint-option').hidden=true;$('basic-paint-option').hidden=false;
     $('horse-shape').classList.remove('selected');$('horse-shape').setAttribute('aria-pressed','false');
     specimen.visible=true;$('layers-view').disabled=false;
+    $('maze-enter').hidden=state.shape!=='maze';
     document.querySelectorAll('[data-shape]').forEach(b=>{const active=b.dataset.shape===state.shape;b.classList.toggle('selected',active);b.setAttribute('aria-pressed',String(active));});
     updateMetalFinish();
     refreshFeathers();
@@ -130,6 +138,7 @@ function resize(){
   renderDirty=true;
   const rect=$('canvas-wrap').getBoundingClientRect();size={w:rect.width,h:rect.height};
   renderer.setSize(size.w,size.h,false);camera.aspect=size.w/size.h;
+  if(mazeNavigation?.active){camera.fov=75;camera.clearViewOffset();camera.updateProjectionMatrix();return;}
   const narrow=size.w<600;
   camera.fov=narrow?Math.max(43,THREE.MathUtils.radToDeg(2*Math.atan(Math.tan(THREE.MathUtils.degToRad(43)/2)*.7/camera.aspect))):35;
   camera.setViewOffset(size.w,size.h,0,size.h*(narrow?.04:-.064),size.w,size.h);
@@ -177,6 +186,56 @@ $('reset-view').onclick=()=>{controls.reset();controls.autoRotate=state.rotate;t
 let desiredExplode=0;
 function setLayerView(value){desiredExplode=value;for(const [id,active] of [['surface-view',!value],['layers-view',!!value]]){$(id).classList.toggle('selected',active);$(id).setAttribute('aria-pressed',active);}}
 $('surface-view').onclick=()=>setLayerView(0);$('layers-view').onclick=()=>setLayerView(1);
+let mazeOverview;
+mazeNavigation=createMazeNavigation({camera,controls,specimen,canvas:renderer.domElement,stage:document.querySelector('.stage'),button:$('maze-enter'),panel:$('maze-fpv'),isPaused:()=>!$('feather-options').hidden,
+  onEnter(){
+    feathers.setFirstPerson(true);
+    feathers.setLantern(mazeNavigation.room.light);
+    const lights=scene.children.filter(object=>object.isLight);
+    mazeOverview={playing:state.playing,exploded:state.exploded,desiredExplode,lights:lights.map(light=>[light,light.intensity]),environment:scene.environmentIntensity,keyAuto:key.shadow.autoUpdate,fog:scene.fog,ground:ground.visible,shadow:shadow.visible};
+    scene.fog=null;ground.visible=false;shadow.visible=false;
+    for(const light of lights)light.intensity*=light.isHemisphereLight?.3:.12;
+    scene.environmentIntensity*=.3;key.shadow.autoUpdate=false;key.shadow.needsUpdate=true;
+    interactions.cancel();setPlaying(false);state.exploded=0;setLayerView(0);surface.updateAttached();
+    showPaintOptions(false);showFeatherOptions(false);
+    $('maze-feather-settings').hidden=state.material!=='feathers';
+    if(state.material==='feathers')document.querySelector('.stage').appendChild($('feather-options'));
+    refreshFeathers();
+  },
+  onExit(){
+    feathers.setFirstPerson(false);
+    feathers.setLantern(null);
+    for(const [light,intensity] of mazeOverview.lights)light.intensity=intensity;
+    scene.environmentIntensity=mazeOverview.environment;key.shadow.autoUpdate=mazeOverview.keyAuto;key.shadow.needsUpdate=true;
+    scene.fog=mazeOverview.fog;ground.visible=mazeOverview.ground;shadow.visible=mazeOverview.shadow;
+    showFeatherOptions(false);$('feather-controls').appendChild($('feather-options'));
+    state.exploded=mazeOverview.exploded;setLayerView(mazeOverview.desiredExplode);surface.updateAttached();
+    setPlaying(mazeOverview.playing);resize();
+    refreshFeathers();
+  },
+  invalidate(shadows=false){renderDirty=true;if(shadows)renderer.shadowMap.needsUpdate=true;}
+});
+mazeNavigation.room.interior.setReflectionGroup(feathers.group);
+function syncMazeMapButton(){
+  const index=mazeMaps.findIndex(map=>map.id===getMazeMap()),map=mazeMaps[index];
+  const button=document.querySelector('[data-shape="maze"]');
+  button.querySelector('span').textContent='Maze '+(index+1)+'/'+mazeMaps.length;
+  button.title=map.name+' map · Click again to switch maps';
+  button.setAttribute('aria-label','Maze: '+map.name+'. Click again to switch maps.');
+}
+syncMazeMapButton();
+$('copy-settings').onclick=async()=>{
+  const settings={...state,exploded:desiredExplode,colors:currentColors,
+    model:models.active?{sample:models.sampleKey,name:$('model-name').textContent,animation:Number($('model-animation').value)}:null,
+    camera:{position:camera.position.toArray(),target:controls.target.toArray()},
+    specimenRotation:specimen.rotation.toArray()};
+  try{
+    await navigator.clipboard.writeText(JSON.stringify(settings,null,2));
+    toast('Settings copied');
+  }catch{
+    toast('Could not copy settings. Allow clipboard access and try again.');
+  }
+};
 function syncColors(){
   $('picker-paint-color').value=currentColors.pink;
   for(const name of colorKeys)uniforms['u'+name[0].toUpperCase()+name.slice(1)].value.set(currentColors[name]);
@@ -207,19 +266,26 @@ function updateMetalFinish(){
   $('metal-name').textContent=featherMode?'FEATHERS':profile.name.toUpperCase();
   $('scene').setAttribute('aria-label',`${state.painted?'Painted':'Bare'} ${profile.name.toLowerCase()} ${(models.active?'model':shapeNames[state.shape].toLowerCase())} developing ${profile.finish.toLowerCase()}. Tap the specimen to bounce. Drag loose flakes to move them; tap to remove. Drag elsewhere to orbit, scroll to zoom, or use the arrow keys.`);
   document.querySelector('[data-age="0"]').textContent=state.painted?'Fresh paint':'Fresh metal';
-  if(featherMode)$('scene').setAttribute('aria-label','Overlapping contour feathers on textured skin, rooted in visible follicles. Adjust density, feather lift and plumage direction in Settings. Drag to orbit, scroll to zoom, or use the arrow keys.');
+  if(featherMode)$('scene').setAttribute('aria-label','Feathers on textured skin. Click a feather to send the whole coat flying. Use Return feathers in Settings to restore the coat. Drag to orbit, scroll to zoom, or use the arrow keys.');
 }
 function refreshFeathers(){
   const active=state.material==='feathers';
-  core.material=active?feathers.substrate:coreMat;
-  surface.mesh.visible=!active;
+  const interior=mazeNavigation?.active&&state.shape==='maze'&&!models.active;
+  core.material=interior?mazeNavigation.room.interior.wallMaterial:active?feathers.substrate:coreMat;
+  surface.mesh.visible=!active&&!interior;
   if(active){
-    const stats=feathers.rebuild(models.active?models.meshes:[core],models.active?scene:specimen,state.featherDensity,state.seed);
-    $('feather-count').textContent=`${stats.count} feathers`;
+    const maze=state.shape==='maze'&&!models.active;
+    const sources=models.active?models.meshes:maze&&mazeNavigation.active?[core,mazeNavigation.room.floor,mazeNavigation.room.roof]:[core];
+    feathers.rebuild(sources,models.active?scene:specimen,state.featherDensity,state.seed,{scale:maze?.025:1,viewport:maze,maze,shadowDistance:maze?.02:Infinity});
+    $('maze-feather-help').hidden=!maze;syncFeatherCountUI();
     $('layers-view').disabled=true;
-    $('scene').title='Drag to orbit · Scroll to zoom';
+    if(!mazeNavigation?.active)$('scene').title='Click a feather to send the whole coat flying · Drag to orbit · Scroll to zoom';
   }else feathers.clear();
   renderer.shadowMap.needsUpdate=true;renderDirty=true;
+}
+function syncFeatherCountUI(){
+  const stats=feathers.stats,text=stats.viewport?`${stats.visibleCount} feathers in view`:`${stats.count} feathers`;
+  if($('feather-count').textContent!==text)$('feather-count').textContent=text;
 }
 function leaveFeathers(){
   if(state.material!=='feathers')return;
@@ -248,7 +314,11 @@ $('feather-density').addEventListener('input',event=>{
   paintRange(event.target);refreshFeathers();
 });
 const featherPercent=value=>Math.round(value)+'%';
+const featherGrammarKeys=['axiom','ruleX','ruleF'];
 const featherSettingControls=[
+  ['generations',1,value=>Math.round(value)],
+  ['branchLength',1,value=>value.toFixed(2)+'×'],
+  ['branchRandomness',.01,featherPercent],
   ['length',1,value=>value.toFixed(2)+'×'],
   ['width',1,value=>value.toFixed(2)+'×'],
   ['detail',.01,featherPercent],
@@ -266,6 +336,7 @@ function syncWindDirection(){
   $('feather-windDirection').setAttribute('aria-valuetext',$('feather-windDirection-value').textContent+' · direction the breeze blows');
 }
 function syncFeatherSettingsUI(){
+  document.querySelector(`[name="feather-style"][value="${state.featherSettings.style}"]`).checked=true;
   $('feather-density').value=state.featherDensity;
   $('feather-density-value').textContent=state.featherDensity+'%';
   $('feather-density').setAttribute('aria-valuetext',state.featherDensity+'%');
@@ -277,6 +348,9 @@ function syncFeatherSettingsUI(){
   syncWindDirection();
   $('feather-skin-color').value=state.featherSettings.skinColor;
   $('feather-layering-summary').textContent=state.featherSettings.lift+'° lift';
+  $('feather-lsystem-summary').textContent=state.featherSettings.generations+' generations';
+  for(const key of featherGrammarKeys){$('feather-'+key).value=state.featherSettings[key];$('feather-'+key).removeAttribute('aria-invalid');}
+  $('feather-grammar-status').textContent='';
 }
 for(const [key,multiplier,format] of featherSettingControls){
   const input=$('feather-'+key);
@@ -285,6 +359,7 @@ for(const [key,multiplier,format] of featherSettingControls){
     paintRange(input);$('feather-'+key+'-value').textContent=format(value);
     if(key==='windDirection')syncWindDirection();
     if(key==='lift')$('feather-layering-summary').textContent=value+'° lift';
+    if(key==='generations')$('feather-lsystem-summary').textContent=value+' generations';
     feathers.setSettings(state.featherSettings);renderDirty=true;
   });
 }
@@ -292,19 +367,57 @@ $('feather-skin-color').addEventListener('input',event=>{
   state.featherSettings.skinColor=event.target.value;
   feathers.setSettings(state.featherSettings);renderDirty=true;
 });
+for(const key of featherGrammarKeys){
+  $('feather-'+key).addEventListener('input',()=>{$('feather-'+key).removeAttribute('aria-invalid');$('feather-grammar-status').textContent='';});
+  $('feather-'+key).addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();$('feather-grammar-apply').click();}});
+}
+$('feather-grammar-apply').addEventListener('click',()=>{
+  const grammar={};
+  for(const key of featherGrammarKeys){
+    const input=$('feather-'+key),value=input.value.replace(/\s/g,'');
+    let balance=0,balanced=true;
+    for(const symbol of value){if(symbol==='[')balance++;if(symbol===']'&&--balance<0){balanced=false;break;}}
+    const message=key==='axiom'&&!value?'Enter an axiom, such as X.':!/^[FX+\-\[\]]*$/.test(value)?'Use only F, X, +, -, [ and ].':!balanced||balance?'Match each [ with a closing ].':'';
+    if(message){input.setAttribute('aria-invalid','true');$('feather-grammar-status').textContent=message;input.focus();return;}
+    grammar[key]=value;
+  }
+  Object.assign(state.featherSettings,grammar);feathers.setSettings(state.featherSettings);
+  for(const key of featherGrammarKeys)$('feather-'+key).value=grammar[key];
+  $('feather-grammar-status').textContent='Grammar applied.';renderDirty=true;
+});
+$('feather-grammar-reset').addEventListener('click',()=>{
+  for(const key of [...featherGrammarKeys,'generations','branchLength','branchRandomness'])state.featherSettings[key]=defaultFeatherSettings[key];
+  syncFeatherSettingsUI();feathers.setSettings(state.featherSettings);
+  $('feather-grammar-status').textContent='Original grammar restored.';renderDirty=true;
+});
+document.querySelectorAll('[name="feather-style"]').forEach(input=>input.addEventListener('change',()=>{
+  state.featherSettings.style=input.value;
+  feathers.setSettings(state.featherSettings);renderDirty=true;
+}));
 function showFeatherOptions(open){
   $('feather-options').hidden=!open;
   $('feather-controls').closest('.specimen-dock').classList.toggle('feather-menu-open',open);
   $('feather-settings-toggle').setAttribute('aria-expanded',String(open));
   $('feather-material').setAttribute('aria-expanded',String(open));
+  $('maze-feather-settings').setAttribute('aria-expanded',String(open));
   if(open)showPaintOptions(false);
 }
 $('feather-settings-toggle').addEventListener('click',()=>showFeatherOptions($('feather-options').hidden));
-$('feather-settings-close').addEventListener('click',()=>{showFeatherOptions(false);$('feather-settings-toggle').focus();});
-$('feather-settings-reset').addEventListener('click',()=>{
-  state.featherDensity=25;Object.assign(state.featherSettings,defaultFeatherSettings);
+$('maze-feather-settings').addEventListener('click',()=>showFeatherOptions($('feather-options').hidden));
+$('feather-settings-close').addEventListener('click',()=>{showFeatherOptions(false);$(mazeNavigation.active?'maze-feather-settings':'feather-settings-toggle').focus();});
+function applyFeatherPreset1(){
+  state.featherDensity=featherPreset1.density;Object.assign(state.featherSettings,featherPreset1.settings);
   syncFeatherSettingsUI();feathers.setSettings(state.featherSettings);refreshFeathers();
-});
+  syncFeatherFlightUI();
+}
+function syncFeatherFlightUI(){
+  const returning=feathers.returningCount>0;
+  if($('feather-return').disabled!==returning){$('feather-return').disabled=returning;$('feather-return').textContent=returning?'Returning…':'Return feathers';}
+}
+$('feather-preset-1').addEventListener('click',applyFeatherPreset1);
+$('feather-settings-reset').addEventListener('click',applyFeatherPreset1);
+$('feather-return').addEventListener('click',()=>{feathers.returnAll();syncFeatherFlightUI();renderDirty=true;});
+$('feather-fly-all').addEventListener('click',()=>{if(feathers.launchAll())renderDirty=true;syncFeatherFlightUI();});
 syncFeatherSettingsUI();
 
 function showPaintOptions(open){
@@ -335,16 +448,18 @@ $('picker-paint-color').addEventListener('input',event=>{
 });
 document.addEventListener('click',event=>{
   if(!$('paint-options').contains(event.target)&&!$('paint-toggle').contains(event.target))showPaintOptions(false);
-  if(!$('feather-controls').contains(event.target)&&!$('feather-material').contains(event.target))showFeatherOptions(false);
+  if(!$('feather-controls').contains(event.target)&&!$('feather-material').contains(event.target)&&!$('feather-options').contains(event.target)&&!$('maze-feather-settings').contains(event.target))showFeatherOptions(false);
 });
 document.addEventListener('keydown',event=>{
   if(event.key==='Escape'&&!$('paint-options').hidden){showPaintOptions(false);$('paint-toggle').focus();}
-  if(event.key==='Escape'&&!$('feather-options').hidden){showFeatherOptions(false);$('feather-settings-toggle').focus();}
+  if(event.key==='Escape'&&!$('feather-options').hidden){showFeatherOptions(false);$(mazeNavigation.active?'maze-feather-settings':'feather-settings-toggle').focus();}
 });
 
 function changeShape(shape){
+  mazeNavigation.exit();
   models.clear();
   state.shape=shape;
+  $('maze-enter').hidden=shape!=='maze';
   document.querySelectorAll('[data-shape]').forEach(button=>{
     const selected=button.dataset.shape===shape;
     button.classList.toggle('selected',selected);button.setAttribute('aria-pressed',selected);
@@ -357,7 +472,14 @@ function changeShape(shape){
 }
 
 document.querySelectorAll('[data-shape]').forEach(button=>button.addEventListener('click',()=>{
-  if(button.dataset.shape===state.shape&&!models.active){models.clear();return;}
+  if(button.dataset.shape===state.shape&&!models.active){
+    if(state.shape!=='maze'){models.clear();return;}
+    mazeNavigation.exit();
+    const next=mazeMaps[(mazeMaps.findIndex(map=>map.id===getMazeMap())+1)%mazeMaps.length];
+    setMazeMap(next.id);state.mazeMap=next.id;mazeNavigation.refreshMap();
+    mazeNavigation.room.interior.setReflectionGroup(feathers.group);
+    syncMazeMapButton();toast('Map: '+next.name);
+  }
   interactions.cancel();changeShape(button.dataset.shape);
   state.age=0;state.exploded=0;setLayerView(0);surface.rebuild();paintHold=2.6;
   refreshFeathers();
@@ -438,7 +560,13 @@ function animate(time){
   if(interactions.update(dt)){renderDirty=true;renderer.shadowMap.needsUpdate=true;}
   if(state.material!=='feathers'&&!models.active){physics.step(dt);surface.syncPhysics();}
   if(models.update(dt)){if(state.material==='feathers')feathers.update();renderDirty=true;renderer.shadowMap.needsUpdate=true;}
-  if(state.material==='feathers'&&feathers.advance(dt))renderDirty=true;
+  if(mazeNavigation.active){
+    mazeNavigation.update(dt);
+    if(mazeNavigation.room.interior.advance(dt))renderDirty=true;
+    if(state.material==='feathers'&&feathers.interact(dt,camera))renderDirty=true;
+  }
+  if(state.material==='feathers'&&feathers.advance(dt,camera,controls.target))renderDirty=true;
+  syncFeatherFlightUI();
   uiElapsed+=dt;if(uiElapsed>.15){if(state.age!==lastUIAge){updateAgeUI();lastUIAge=state.age;}uiElapsed=0;}
   const geometry=surface.mesh.geometry;
   // Camera orbit and shader-only aging do not change the light-space geometry.
@@ -447,8 +575,8 @@ function animate(time){
     lastShadowGeometry=geometry;lastShadowVersion=geometry.attributes.position.version;
   }
   if(geometryDirty)renderDirty=true;
-  controls.update(dt);
-  if(renderDirty||firstFrame){featherRenderer.render(scene,camera);renderDirty=false;}
+  if(!mazeNavigation.active)controls.update(dt);
+  if(renderDirty||firstFrame){featherRenderer.render(scene,camera);if(state.material==='feathers')syncFeatherCountUI();renderDirty=false;}
   if(firstFrame){firstFrame=false;$('loading').classList.add('complete');setTimeout(()=>$('loading').remove(),700);}
 }
 requestAnimationFrame(animate);

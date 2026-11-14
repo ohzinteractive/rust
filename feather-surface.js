@@ -509,5 +509,3 @@ export function createFeatherSurface() {
     get stats() { return {count:samples.length, visibleCount:group.children.filter(batch=>batch.isLineSegments).reduce((sum,batch)=>sum+batch.geometry.instanceCount,0), viewport:viewportOnly,area:viewportOnly?visibleArea:(sampler?.area??0),surfaceArea:sampler?.area??0}; }
   };
 }
-
-export {defaultFeatherSettings} from './feather-presets.js';
