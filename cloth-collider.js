@@ -63,10 +63,13 @@ export function createClothCollider(meshes,{resolution=73}={}){
     return true;
   }
   const support=new THREE.Vector3(),topField=fields[1];let highest=-Infinity,nearest=Infinity;
+  for(const y of topField.high)highest=Math.max(highest,y);
+  const topTolerance=Math.max(.002,size[1]*.04);let topCells=0;
   for(let row=0;row<resolution;row++)for(let col=0;col<resolution;col++){
-    const y=topField.high[row*resolution+col],distance=(row/(resolution-1)-.5)**2+(col/(resolution-1)-.5)**2;
-    if(y>highest+.002||(Math.abs(y-highest)<.002&&distance<nearest)){
-      highest=y;nearest=distance;support.set(min[0]+row/(resolution-1)*size[0],y+.09,min[2]+col/(resolution-1)*size[2]);
+    const y=topField.high[row*resolution+col];if(y>=highest-topTolerance)topCells++;
+    const distance=(row/(resolution-1)-.5)**2+(col/(resolution-1)-.5)**2;
+    if(y>=highest-topTolerance&&distance<nearest){
+      nearest=distance;support.set(min[0]+row/(resolution-1)*size[0],y+.09,min[2]+col/(resolution-1)*size[2]);
     }
   }
   function crossSection(y){
@@ -85,7 +88,7 @@ export function createClothCollider(meshes,{resolution=73}={}){
     for(let i=unique.length-1;i>=0;i--){const p=unique[i];while(upper.length>1&&cross(upper.at(-2),upper.at(-1),p)<=0)upper.pop();upper.push(p);}
     return lower.slice(0,-1).concat(upper.slice(0,-1));
   }
-  return {bounds,support,contactNormal,crossSection,
+  return {bounds,support,contactNormal,crossSection,topCoverage:topCells/(resolution*resolution),
     containsSurface:exact.contains,projectSurface:exact.project,
     projectWrap(p,offset=0,padding=.04,angle=null,originX=null,originZ=null){
       // Continue the lowest silhouette down to the hem; projecting against
@@ -96,6 +99,16 @@ export function createClothCollider(meshes,{resolution=73}={}){
       }
       if(p[offset+1]<bounds.min.y||p[offset+1]>bounds.max.y)return exact.project(p,offset,padding);
       return wrap.project(p,offset,padding,angle,originX,originZ);
+    },
+    // A conservative roof sample keeps fine ornaments from poking through
+    // display triangles without running a detailed mesh query every frame.
+    projectRoof(p,offset=0,padding=.065){
+      const x=(p[offset]-min[0])/size[0]*(resolution-1),z=(p[offset+2]-min[2])/size[2]*(resolution-1);
+      if(x<0||z<0||x>resolution-1||z>resolution-1)return false;
+      const row=Math.min(resolution-2,Math.floor(x)),col=Math.min(resolution-2,Math.floor(z));
+      const height=Math.max(topField.high[row*resolution+col],topField.high[(row+1)*resolution+col],topField.high[row*resolution+col+1],topField.high[(row+1)*resolution+col+1]);
+      if(p[offset+1]>=height+padding)return false;
+      p[offset+1]=height+padding;return true;
     },
     // Follow the gradient of the upper surface. Normal projection lets gravity
     // slide the sheet down sloping shoulders instead of gathering it on top.

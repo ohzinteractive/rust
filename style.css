@@ -219,6 +219,9 @@ html,body{width:100%;height:100%;overflow:hidden}
 .cloth-rope-row input{width:100%;margin-top:5px;accent-color:#b79869}
 .cloth-rope-row button{font-size:19px;color:var(--muted);border-radius:4px}
 .cloth-rope-row button:hover{background:#ffffff0a;color:var(--text)}
+.cloth-rope-heading>div{display:flex;gap:5px}
+.cloth-binding-type{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;gap:10px}
+.cloth-binding-type select{min-width:0;max-width:160px;padding:6px;border:1px solid var(--line);border-radius:4px;background:#21261e;color:var(--text);font:11px var(--sans)}
 
 .cloth-rope-status{grid-column:1/-1;font:9px var(--sans);color:var(--muted)}
 .cloth-rope-row:has(.cloth-rope-status){row-gap:5px}
@@ -244,3 +247,9 @@ html,body{width:100%;height:100%;overflow:hidden}
 .cloth-fabrics small{display:block;color:var(--muted);margin-top:5px;font-size:10px}
 .cloth-fabrics input:checked+span{border-color:#c4b68a;background:#c4b68a15}
 .cloth-fabrics input:focus-visible+span{outline:2px solid var(--orange);outline-offset:2px}
+.cloth-plastic-settings{border:0;border-top:1px solid var(--line);margin:0 0 22px;padding:18px 0 0;min-width:0}
+.cloth-plastic-settings legend{font:11px var(--sans);padding-right:8px}
+.cloth-plastic-settings .feather-setting{margin:14px 0}
+.cloth-tint{display:flex;align-items:center;justify-content:space-between;font:11px var(--sans);margin:16px 0}
+.cloth-tint input{width:48px;height:30px;padding:2px;border:1px solid var(--line);border-radius:4px;background:transparent;cursor:pointer}
+.cloth-plastic-settings button{width:100%;padding:9px;border:1px solid var(--line);border-radius:4px;background:transparent;color:var(--muted);font:10px var(--sans);cursor:pointer}

@@ -13,6 +13,7 @@ import { createFeatherSurface } from './feather-surface.js';
 import {featherPreset1,defaultFeatherSettings,defaultFeatherDensity} from './feather-presets.js';
 import {createFeatherInteractions} from './feather-picking.js';
 import {createClothSurface} from './cloth-surface.js';
+import {defaultPlasticSettings,iridescentPlasticSettings} from './cloth-fabric.js';
 import { createFeatherRenderer } from './feather-renderer.js';
 import { createMazeNavigation } from './maze-navigation.js';
 import {getMazeMap,setMazeMap,mazeMaps} from './maze-geometry.js';
@@ -23,7 +24,7 @@ const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const state = {shape:'cube',mazeMap:getMazeMap(),material:'metal',featherDensity:defaultFeatherDensity,metal:'iron',painted:true,modelAppearance:'paint',flakeFactor:1,age:0,moisture:.72,oxygen:.8,salt:.28,scale:2.4,peel:.68,relief:1,seed:7319,playing:!reducedMotion,rotate:!reducedMotion,speed:10,exploded:0};
 const colorKeys=['dark','burnt','orange','gold','teal','tealLight','pink','pinkLight','metal'];
 state.featherSettings={...defaultFeatherSettings};
-state.clothSettings={breeze:.12,held:true,fabric:'linen',ropes:[]};
+state.clothSettings={breeze:.12,held:true,fabric:'linen',ropes:[],ropePoints:96,autoSettle:true,settleTolerance:.003};
 const currentColors={dark:'#241610',burnt:'#70371f',orange:'#b95b28',gold:'#b28a45',teal:'#53645a',tealLight:'#7d8b72',pink:'#efc51a',pinkLight:'#f7d74b',metal:'#343936'};
 let paintHold=2.6;
 
@@ -46,10 +47,14 @@ renderer.shadowMap.enabled=true;
 renderer.shadowMap.autoUpdate=false;
 renderer.shadowMap.needsUpdate=true;
 renderer.shadowMap.type=THREE.PCFSoftShadowMap;
-renderer.setClearColor(0x141613,0);
+const backdropColor=0x141613;
+renderer.setClearColor(backdropColor,1);
 
 const scene = new THREE.Scene();
-scene.fog=new THREE.FogExp2(0x141613,.032);
+// Refraction must see the same dark backdrop as the canvas. A transparent
+// clear makes Three.js substitute white behind transmissive surfaces.
+scene.background=new THREE.Color(backdropColor);
+scene.fog=new THREE.FogExp2(backdropColor,.032);
 const camera=new THREE.PerspectiveCamera(33,1,.1,80);
 camera.position.set(5.1,6.1,6.6);
 const controls=new OrbitControls(camera,renderer.domElement);
@@ -92,7 +97,7 @@ specimen.updateMatrixWorld(true);
 const physics=createFlakePhysics({floorY,cubePosition:specimen.position,cubeQuaternion:specimen.quaternion,cubeHalfExtent:1.296});
 const surface=new PeelingSurface({parent:specimen,material:coatingMat,physics,state});
 const feathers=createFeatherSurface();
-const cloth=createClothSurface({scene,floorY});
+const cloth=createClothSurface({scene,floorY,onSettle:syncClothPlayback});
 const featherRenderer=createFeatherRenderer({renderer,feathers,shadowLight:key});
 let mazeNavigation;
 const interactions=createSceneInteractions({canvas:renderer.domElement,camera,controls,core,specimen,surface,physics,enabled:()=>state.material==='metal'&&!mazeNavigation?.active,invalidate(){renderDirty=true;renderer.shadowMap.needsUpdate=true;}});
@@ -290,9 +295,9 @@ function refreshFeathers(){
     if(!mazeNavigation?.active)$('scene').title='Click a feather to send the whole coat flying · Drag to orbit · Scroll to zoom';
   }else feathers.clear();
   if(state.material==='cloth'&&!interior){
-    cloth.rebuild(models.active?models.meshes:[core],{resolution:innerWidth<600?36:48,held:state.clothSettings.held,fabric:state.clothSettings.fabric,radial:models.active,ropes:state.clothSettings.ropes});
+    cloth.rebuild(models.active?models.meshes:[core],{resolution:innerWidth<600?36:48,held:state.clothSettings.held,fabric:state.clothSettings.fabric,radial:models.active,ropes:state.clothSettings.ropes,ropePoints:state.clothSettings.ropePoints,autoSettle:state.clothSettings.autoSettle,settleTolerance:state.clothSettings.settleTolerance});
     cloth.simulation.breeze=state.clothSettings.breeze;
-    $('cloth-pause').textContent='Pause';$('cloth-pause').setAttribute('aria-pressed','false');
+    syncClothPlayback();
   }else cloth.clear();
   renderer.shadowMap.needsUpdate=true;renderDirty=true;
 }
@@ -340,28 +345,76 @@ document.querySelectorAll('[name="cloth-fabric"]').forEach(input=>input.addEvent
   if(!input.checked)return;
   state.clothSettings.fabric=input.value;cloth.setFabric(input.value);
   $('cloth-fabric-name').textContent=cloth.fabric.name;
+  syncPlasticControls();
   updateMetalFinish();renderDirty=true;
 }));
+function syncPlasticControls(){
+  $('cloth-plastic-settings').hidden=state.clothSettings.fabric!=='plastic';
+  for(const key of ['gloss','translucency','crinkle','iridescence','colorVariation']){
+    const value=Math.round(cloth.plasticSettings[key]*100),input=$('cloth-'+key);
+    input.value=value;$('cloth-'+key+'-value').value=value+'%';paintRange(input);
+  }
+  $('cloth-tint').value=cloth.plasticSettings.color;
+}
+for(const key of ['gloss','translucency','crinkle','iridescence','colorVariation'])$('cloth-'+key).addEventListener('input',event=>{
+  cloth.setPlasticSettings({[key]:Number(event.target.value)/100});syncPlasticControls();renderDirty=true;
+});
+$('cloth-tint').addEventListener('input',event=>{cloth.setPlasticSettings({color:event.target.value});renderDirty=true;});
+$('cloth-plastic-reset').addEventListener('click',()=>{cloth.setPlasticSettings(defaultPlasticSettings);syncPlasticControls();renderDirty=true;});
+$('cloth-iridescent').addEventListener('click',()=>{cloth.setPlasticSettings(iridescentPlasticSettings);syncPlasticControls();renderDirty=true;});
+syncPlasticControls();
+$('cloth-rope-points').addEventListener('input',event=>{
+  state.clothSettings.ropePoints=Number(event.target.value);cloth.setRopePoints(state.clothSettings.ropePoints);
+  $('cloth-rope-points-value').value=event.target.value;paintRange(event.target);renderDirty=true;
+});
+paintRange($('cloth-rope-points'));
 $('cloth-redrape').addEventListener('click',()=>{if(state.material==='cloth')refreshFeathers();});
+function syncClothPlayback(){
+  const simulation=cloth.simulation;if(!simulation)return;
+  const stopped=simulation.paused||simulation.sleeping,label=stopped?'Resume':'Pause';
+  const status=simulation.paused?'Paused':simulation.sleeping?'Settled':simulation.autoSettle?'Settling…':'Animating';
+  if($('cloth-pause').textContent!==label)$('cloth-pause').textContent=label;
+  $('cloth-pause').setAttribute('aria-pressed',String(stopped));
+  if($('cloth-settle-status').textContent!==status)$('cloth-settle-status').textContent=status;
+}
 $('cloth-pause').addEventListener('click',()=>{
   if(!cloth.simulation)return;
-  cloth.simulation.paused=!cloth.simulation.paused;
-  $('cloth-pause').textContent=cloth.simulation.paused?'Resume':'Pause';
-  $('cloth-pause').setAttribute('aria-pressed',String(cloth.simulation.paused));
+  if(cloth.simulation.sleeping)cloth.simulation.wake();else cloth.simulation.paused=!cloth.simulation.paused;
+  syncClothPlayback();
+});
+$('cloth-settle-tolerance').addEventListener('input',event=>{
+  state.clothSettings.settleTolerance=Number(event.target.value)/10000;
+  if(cloth.simulation)cloth.simulation.settleTolerance=state.clothSettings.settleTolerance;
+  $('cloth-settle-tolerance-value').value=(Number(event.target.value)/100).toFixed(2)+'%';paintRange(event.target);syncClothPlayback();
+});
+paintRange($('cloth-settle-tolerance'));
+$('cloth-auto-settle').addEventListener('change',event=>{
+  state.clothSettings.autoSettle=event.target.checked;
+  if(cloth.simulation)cloth.simulation.autoSettle=event.target.checked;
+  syncClothPlayback();
 });
 function syncClothRopes(){
   const list=$('cloth-rope-list');list.replaceChildren();
   state.clothSettings.ropes.forEach((rope,index)=>{
     const row=document.createElement('div');row.className='cloth-rope-row';row.dataset.ropeId=rope.id;
     const status=document.createElement('span');status.className='cloth-rope-status';status.textContent='Waiting for cloth…';status.setAttribute('role','status');row.appendChild(status);
-    for(const [key,label,min,max] of [['height','Height',3,97],['tightness','Tightness',0,100]]){
+    const typeField=document.createElement('label'),typeSelect=document.createElement('select');typeField.className='cloth-binding-type';typeField.textContent='Binding';
+    for(const [value,label] of [['cord','Round cord'],['ribbon','Spiral ribbon']]){const option=document.createElement('option');option.value=value;option.textContent=label;typeSelect.appendChild(option);}
+    typeSelect.value=rope.style??'cord';typeSelect.dataset.ropeControl='style';typeSelect.setAttribute('aria-label',`Binding ${index+1} type`);
+    typeSelect.addEventListener('change',()=>{rope.style=typeSelect.value;rope.width??=.07;rope.turns??=3;rope.span??=.4;cloth.setRopes(state.clothSettings.ropes);syncClothRopes();renderDirty=true;});
+    typeField.appendChild(typeSelect);row.appendChild(typeField);
+    const settings=[['height','Height',3,97],['tightness','Tightness',0,100]];
+    if(rope.style==='ribbon')settings.push(['width','Width',1,15],['turns','Turns',1,5],['span','Coverage',10,80]);
+    for(const [settingIndex,[key,label,min,max]] of settings.entries()){
       const field=document.createElement('label'),title=document.createElement('span'),output=document.createElement('output'),input=document.createElement('input');
-      title.textContent=label;output.textContent=Math.round(rope[key]*100)+'%';title.appendChild(output);
-      input.type='range';input.min=min;input.max=max;input.step=1;input.value=Math.round(rope[key]*100);input.dataset.ropeControl=key;input.setAttribute('aria-label',`Rope ${index+1} ${label.toLowerCase()}`);input.title=key==='height'?'Height from the bottom of the object':'How closely the rope gathers the cloth';
-      input.addEventListener('input',()=>{rope[key]=Number(input.value)/100;output.textContent=input.value+'%';cloth.setRopes(state.clothSettings.ropes);renderDirty=true;});
+      field.style.gridColumn=String(settingIndex%2+1);
+      const scale=key==='turns'?1:100,suffix=key==='turns'?'':'%';
+      title.textContent=label;output.textContent=Math.round(rope[key]*scale)+suffix;title.appendChild(output);
+      input.type='range';input.min=min;input.max=max;input.step=1;input.value=Math.round(rope[key]*scale);input.dataset.ropeControl=key;input.setAttribute('aria-label',`${rope.style==='ribbon'?'Ribbon':'Rope'} ${index+1} ${label.toLowerCase()}`);input.title={height:'Height from the bottom of the object',tightness:'How closely the binding gathers the cloth',width:'Ribbon width relative to object height',turns:'Number of spiral turns',span:'Vertical coverage relative to object height'}[key];
+      input.addEventListener('input',()=>{rope[key]=Number(input.value)/scale;output.textContent=input.value+suffix;cloth.setRopes(state.clothSettings.ropes);renderDirty=true;});
       field.append(title,input);row.appendChild(field);
     }
-    const remove=document.createElement('button');remove.type='button';remove.textContent='×';remove.setAttribute('aria-label',`Remove rope ${index+1}`);
+    const remove=document.createElement('button');remove.type='button';remove.textContent='×';remove.setAttribute('aria-label',`Remove ${rope.style==='ribbon'?'ribbon':'rope'} ${index+1}`);remove.style.gridColumn='3';remove.style.gridRow='3';
     remove.addEventListener('click',()=>{state.clothSettings.ropes=state.clothSettings.ropes.filter(r=>r.id!==rope.id);cloth.setRopes(state.clothSettings.ropes);syncClothRopes();renderDirty=true;});
     row.appendChild(remove);list.appendChild(row);
   });
@@ -373,10 +426,13 @@ function syncClothRopeStatus(){
     if(status&&status.textContent!==text)status.textContent=text;
   }
 }
-$('cloth-add-rope').addEventListener('click',()=>{
+function addClothBinding(style){
   const ropes=state.clothSettings.ropes,id=1+ropes.reduce((max,rope)=>Math.max(max,rope.id),0);
-  ropes.push({id,height:[.5,.7,.3][ropes.length%3],tightness:.8});cloth.setRopes(ropes);syncClothRopes();
-});
+  ropes.push({id,style,height:style==='ribbon'?.65:[.5,.7,.3][ropes.length%3],tightness:.8,width:.07,turns:3,span:.4});
+  cloth.setRopes(ropes);syncClothRopes();renderDirty=true;
+}
+$('cloth-add-rope').addEventListener('click',()=>addClothBinding('cord'));
+$('cloth-add-ribbon').addEventListener('click',()=>addClothBinding('ribbon'));
 $('cloth-held').addEventListener('change',event=>{state.clothSettings.held=event.target.checked;if(state.material==='cloth')refreshFeathers();});
 $('cloth-breeze').addEventListener('input',event=>{state.clothSettings.breeze=Number(event.target.value)/100;if(cloth.simulation)cloth.simulation.breeze=state.clothSettings.breeze;});
 $('feather-density').addEventListener('input',event=>{
@@ -640,7 +696,7 @@ function animate(time){
   if(state.material==='feathers'&&feathers.advance(dt,camera,controls.target))renderDirty=true;
   if(state.material==='cloth'&&cloth.advance(dt)){renderDirty=true;renderer.shadowMap.needsUpdate=true;}
   syncFeatherFlightUI();
-  uiElapsed+=dt;if(uiElapsed>.15){if(state.material==='cloth')syncClothRopeStatus();if(state.age!==lastUIAge){updateAgeUI();lastUIAge=state.age;}uiElapsed=0;}
+  uiElapsed+=dt;if(uiElapsed>.15){if(state.material==='cloth'){syncClothRopeStatus();syncClothPlayback();}if(state.age!==lastUIAge){updateAgeUI();lastUIAge=state.age;}uiElapsed=0;}
   const geometry=surface.mesh.geometry;
   // Camera orbit and shader-only aging do not change the light-space geometry.
   if(geometry!==lastShadowGeometry||geometry.attributes.position.version!==lastShadowVersion){

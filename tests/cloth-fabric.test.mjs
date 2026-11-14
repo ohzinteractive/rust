@@ -5,7 +5,7 @@ registerHooks({resolve(s,c,next){return next(s==='three'?new URL('../vendor/thre
 const THREE=await import('../vendor/three.module.js');
 const {createClothSurface}=await import('../cloth-surface.js');
 
-for(const fabric of ['wool','duvet'])test(`${fabric}: thick cloth stays supported through live fabric changes`,()=>{
+for(const fabric of ['plastic','wool','duvet'])test(`${fabric}: material stays supported through live fabric changes`,()=>{
   const scene=new THREE.Scene(),body=new THREE.Mesh(new THREE.SphereGeometry(1,24,16),new THREE.MeshBasicMaterial());scene.add(body);
   const cloth=createClothSurface({scene});cloth.rebuild([body],{resolution:12,fabric,ropes:[{id:1,height:.5,tightness:.8}]});
   for(let frame=0;frame<480;frame++)cloth.advance(1/60);
@@ -14,7 +14,16 @@ for(const fabric of ['wool','duvet'])test(`${fabric}: thick cloth stays supporte
   assert(positions.every(Number.isFinite));
   for(let i=1;i<positions.length;i+=3)assert(positions[i]>=-1.739&&positions[i]<1.5,`Thicker fabric stays on the body and above the floor: y=${positions[i]}`);
   const before=positions.slice(),time=sim.time;
+  if(fabric==='plastic'){
+    assert('PHYSICAL' in cloth.mesh.material.defines,'Custom UV support preserves physical refraction shader defines');
+    assert(cloth.mesh.material.transmission>.5,'Thin film transmits the underlying specimen');
+    assert(cloth.mesh.material.roughness<.25&&cloth.mesh.material.clearcoat>0,'Plastic has sharp glossy reflections');
+    assert.equal(cloth.mesh.material.side,THREE.DoubleSide);
+    assert.equal(cloth.mesh.getObjectByName('Fabric reverse').visible,false,'A single film shell avoids overlapping refraction');
+  }
   cloth.setFabric('linen');assert.equal(cloth.simulation,sim);assert.equal(sim.time,time);assert.deepEqual(positions,before,'Changing fabric preserves the current drape');
+  assert.equal(cloth.mesh.material.transmission,0);assert.equal(cloth.mesh.material.side,THREE.FrontSide);
+  assert(cloth.mesh.getObjectByName('Fabric reverse').visible,'Opaque fabric restores its lining');
   const lining=cloth.mesh.getObjectByName('Fabric reverse'),hem=cloth.mesh.getObjectByName('Fabric hem');
   assert.equal(lining.geometry,cloth.mesh.geometry);
   assert(hem.geometry.attributes.position.array.every(Number.isFinite));

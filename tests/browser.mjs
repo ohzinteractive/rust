@@ -22,20 +22,122 @@ try{
  const call=(method,params={})=>new Promise(r=>{pending.set(++id,r);ws.send(JSON.stringify({id,method,params}));});
  const run=async expression=>{const r=await call('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(r.result.exceptionDetails)throw Error(JSON.stringify(r.result.exceptionDetails));return r.result.result.value;};
  await call('Network.enable');await call('Network.setCacheDisabled',{cacheDisabled:true});
- await call('Runtime.enable');await call('Log.enable');await call('Page.enable');await call('Emulation.setDeviceMetricsOverride',{width:1050,height:850,deviceScaleFactor:1,mobile:false});await call('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'reduce'}]});await call('Page.addScriptToEvaluateOnNewDocument',{source:`window.drawCount=0;for(const name of ['drawElements','drawArrays']){const original=WebGL2RenderingContext.prototype[name];WebGL2RenderingContext.prototype[name]=function(...args){window.drawCount++;return original.apply(this,args);};}`});await call('Page.navigate',{url:'http://127.0.0.1:8765/'});
+ await call('Runtime.enable');await call('Log.enable');await call('Page.enable');await call('Page.bringToFront');await call('Emulation.setDeviceMetricsOverride',{width:1050,height:850,deviceScaleFactor:1,mobile:false});await call('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'reduce'}]});await call('Page.addScriptToEvaluateOnNewDocument',{source:`window.drawCount=0;for(const name of ['drawElements','drawArrays']){const original=WebGL2RenderingContext.prototype[name];WebGL2RenderingContext.prototype[name]=function(...args){window.drawCount++;return original.apply(this,args);};}`});await call('Page.navigate',{url:'http://127.0.0.1:8765/'});
  let loaded=false;for(let i=0;i<100;i++){await delay(200);loaded=await run("document.readyState==='complete'&&!document.getElementById('loading')");if(loaded||errors.length)break;}
  assert.equal(errors.length,0,JSON.stringify(errors));assert(loaded,'Scene did not finish loading');
  assert(await run("document.getElementById('webgl-error').hidden"));
- if(process.argv.includes('--cloth-fabrics-only')){
+ if(process.argv.includes('--ribbon-only')){
+   for(const mobile of [false,true]){
+     if(mobile)await call('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
+     await run("document.querySelector('[data-shape=pill]').click();document.getElementById('cloth-material').click();peelDebug.cloth.rebuild([peelDebug.core],{resolution:12,fabric:'plastic',ropePoints:peelDebug.state.clothSettings.ropePoints});document.querySelector('[name=cloth-fabric][value=plastic]').click();document.getElementById('cloth-iridescent').click();for(let i=0;i<180;i++)peelDebug.cloth.advance(1/60);document.getElementById('cloth-add-ribbon').click()");
+     for(let i=0;i<8;i++)await run('for(let frame=0;frame<60;frame++)peelDebug.cloth.advance(1/60)');
+     const binding=await run('JSON.stringify(peelDebug.cloth.ropes.stats[0])');console.log('Ribbon binding',binding);
+     assert(await run("peelDebug.cloth.ropes.stats[0].status==='tied'&&peelDebug.cloth.ropes.stats[0].attachments>8&&!!peelDebug.cloth.ropes.group.getObjectByName('Cloth binding ribbon')"),binding);
+     assert(await run("(()=>{const cloth=peelDebug.cloth,sim=cloth.simulation,p=sim.positions.slice(),input=document.querySelector('[data-rope-control=width]');if(document.getElementById('cloth-options').hidden)document.getElementById('cloth-settings-toggle').click();input.scrollIntoView({block:'center'});const r=input.getBoundingClientRect();if(document.elementFromPoint(r.left+r.width/2,r.top+r.height/2)!==input)return false;input.value=9;input.dispatchEvent(new Event('input'));return cloth.simulation===sim&&p.every((v,i)=>v===sim.positions[i])&&cloth.ropes.stats[0].status==='tied'&&cloth.ropes.stats[0].width===.09;})()"),'Ribbon width changes live and the control is reachable');
+     await run("document.getElementById('cloth-settings-close').click();peelDebug.featherRenderer.render(peelDebug.scene,peelDebug.camera)");
+     const shot=await call('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});await writeFile(`/private/tmp/oxide-spiral-ribbon${mobile?'-mobile':''}.png`,Buffer.from(shot.result.data,'base64'));
+     await run("document.getElementById('cloth-rope-points').value=192;document.getElementById('cloth-rope-points').dispatchEvent(new Event('input'))");
+     assert(await run("peelDebug.cloth.ropes.group.getObjectByName('Cloth binding ribbon').geometry.attributes.position.count===(192*3+1)*8"),'Rope points refine each ribbon turn');
+     await run("var type=document.querySelector('[data-rope-control=style]');type.value='cord';type.dispatchEvent(new Event('change'))");assert(await run("!!peelDebug.cloth.ropes.group.getObjectByName('Cloth binding rope')"));
+     await run("var type=document.querySelector('[data-rope-control=style]');type.value='ribbon';type.dispatchEvent(new Event('change'));document.getElementById('cloth-redrape').click()");
+     assert(await run("peelDebug.cloth.ropes.stats[0].style==='ribbon'&&peelDebug.cloth.ropes.stats[0].width===.09"),'Redrape preserves the ribbon settings');
+     await run("while(document.querySelector('#cloth-rope-list button'))document.querySelector('#cloth-rope-list button').click();document.querySelector('[data-metal=iron]').click()");
+   }
+   assert.equal(errors.length,0,JSON.stringify(errors));console.log('PASS: spiral satin ribbons, live width, detail, binding type switching and redrape on desktop/mobile.');
+ }else if(process.argv.includes('--iridescence-only')){
+   const pixels=await run("import('/tests/iridescence-gpu.js').then(module=>module.checkFilmIridescence(peelDebug.renderer,peelDebug.scene.environment))");
+   console.log('Iridescent film pixels',JSON.stringify(pixels));
+   assert(pixels.changed>200&&pixels.colored>200&&pixels.shifted>200,'The film must render changing rainbow reflections: '+JSON.stringify(pixels));
+   for(const mobile of [false,true]){
+     if(mobile)await call('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
+     await run("document.querySelector('[data-shape=sphere]').click();document.getElementById('cloth-material').click();document.querySelector('[name=cloth-fabric][value=plastic]').click();if(document.getElementById('cloth-options').hidden)document.getElementById('cloth-settings-toggle').click()");
+     const live=await run(`(()=>{
+       const cloth=peelDebug.cloth,sim=cloth.simulation,before=sim.positions.slice();document.getElementById('cloth-iridescent').click();
+       for(const id of ['cloth-iridescence','cloth-colorVariation']){const input=document.getElementById(id);input.scrollIntoView({block:'center'});const r=input.getBoundingClientRect();if(document.elementFromPoint(r.left+r.width/2,r.top+r.height/2)!==input)return false;}
+       return cloth.mesh.material.iridescence===1&&sim===cloth.simulation&&before.every((v,i)=>v===sim.positions[i])&&document.getElementById('cloth-iridescence-value').value==='100%';
+     })()`);
+     assert(live,'The preset and reachable controls update the finish without changing the drape');
+     await run("for(let i=0;i<120;i++)peelDebug.cloth.advance(1/60);document.getElementById('cloth-settings-close').click();peelDebug.featherRenderer.render(peelDebug.scene,peelDebug.camera)");
+     const shot=await call('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});await writeFile(`/private/tmp/oxide-iridescent-film${mobile?'-mobile':''}.png`,Buffer.from(shot.result.data,'base64'));
+     await run("document.getElementById('cloth-redrape').click();document.querySelector('[name=cloth-fabric][value=linen]').click()");assert(await run('peelDebug.cloth.mesh.material.iridescence===0'),'Other fabrics do not inherit iridescence');
+     await run("document.querySelector('[name=cloth-fabric][value=plastic]').click()");assert(await run('peelDebug.cloth.mesh.material.iridescence===1'),'The film settings survive redrape and material switching');
+     await run("document.getElementById('cloth-plastic-reset').click();peelDebug.featherRenderer.render(peelDebug.scene,peelDebug.camera)");assert(await run('peelDebug.cloth.mesh.material.iridescence===0'),'Reset returns to pearl plastic');
+     await run("document.querySelector('[data-metal=iron]').click()");
+   }
+   assert.equal(errors.length,0,JSON.stringify(errors));console.log('PASS: rainbow film rendering, preset, controls, preserved drape and reset on desktop/mobile.');
+ }else if(process.argv.includes('--backdrop-only')){
+   const result=await run("import('/tests/backdrop-gpu.js').then(module=>module.checkDarkBackdrop(peelDebug.renderer,peelDebug.scene.background))");
+   console.log('Backdrop refraction pixels',JSON.stringify(result));
+   assert(result.explicit&&result.dark.slice(0,3).every(value=>value<40)&&result.dark[3]===255,'Empty space behind plastic stays dark and opaque: '+JSON.stringify(result));
+   assert(result.transparent.slice(0,3).some(value=>value>100),'The regression fixture must reproduce the former white refraction fallback');
+   await run("document.querySelector('[data-shape=sphere]').click();document.getElementById('cloth-material').click();document.querySelector('[name=cloth-fabric][value=plastic]').click();for(let i=0;i<120;i++)peelDebug.cloth.advance(1/60);document.getElementById('cloth-settings-close').click();peelDebug.controls.autoRotate=false;peelDebug.controls.enableDamping=false;peelDebug.camera.position.set(0,.2,9);peelDebug.controls.target.set(0,0,0);peelDebug.controls.update();peelDebug.featherRenderer.render(peelDebug.scene,peelDebug.camera)");
+   const shot=await call('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});await writeFile('/private/tmp/oxide-dark-horizon.png',Buffer.from(shot.result.data,'base64'));
+   assert.equal(errors.length,0,JSON.stringify(errors));console.log('PASS: dark horizon backdrop and refraction instead of a white fallback.');
+ }else if(process.argv.includes('--cloth-settling-only')){
+   for(const mobile of [false,true]){
+     if(mobile)await call('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
+     await run("document.querySelector('[data-shape=sphere]').click();document.getElementById('cloth-material').click();peelDebug.cloth.rebuild([peelDebug.core],{resolution:12});document.querySelector('[name=cloth-fabric][value=plastic]').click();var breeze=document.getElementById('cloth-breeze');breeze.value=0;breeze.dispatchEvent(new Event('input'))");
+     let sleeping=false;
+     for(let i=0;i<60&&!sleeping;i++)sleeping=await run("for(let frame=0;frame<60;frame++)peelDebug.cloth.advance(1/60);peelDebug.cloth.simulation.sleeping");
+     assert(sleeping,'A resting drape must settle: '+await run('JSON.stringify(peelDebug.cloth.simulation.movement)'));
+     const idle=await run(`(()=>{const cloth=peelDebug.cloth,sim=cloth.simulation,time=sim.time,version=cloth.mesh.geometry.attributes.position.version;for(let i=0;i<120;i++)if(cloth.advance(1/60))return false;return sim.time===time&&cloth.mesh.geometry.attributes.position.version===version;})()`);
+     assert(idle,'Settled cloth skips both physics and geometry updates');
+     for(let i=0;i<20&&!(await run("document.getElementById('cloth-settle-status').textContent==='Settled'"));i++)await delay(100);
+     assert(await run("document.getElementById('cloth-settle-status').textContent==='Settled'&&document.getElementById('cloth-pause').textContent==='Resume'"),await run("JSON.stringify({status:document.getElementById('cloth-settle-status').textContent,label:document.getElementById('cloth-pause').textContent,hidden:document.hidden,sleeping:peelDebug.cloth.simulation.sleeping,paused:peelDebug.cloth.simulation.paused,material:peelDebug.state.material})"));
+     await run("document.getElementById('cloth-gloss').value=45;document.getElementById('cloth-gloss').dispatchEvent(new Event('input'))");
+     assert(await run('peelDebug.cloth.simulation.sleeping'),'Appearance edits preserve the resting pose');
+     await run("document.getElementById('cloth-pause').click()");assert(await run('!peelDebug.cloth.simulation.sleeping&&!peelDebug.cloth.simulation.paused'),'Resume wakes a settled sheet');
+     await run("document.getElementById('cloth-auto-settle').click();var tolerance=document.getElementById('cloth-settle-tolerance');tolerance.scrollIntoView({block:'center'});tolerance.value=50;tolerance.dispatchEvent(new Event('input'));document.getElementById('cloth-redrape').click()");
+     assert(await run("!peelDebug.cloth.simulation.autoSettle&&peelDebug.cloth.simulation.settleTolerance===.005&&document.getElementById('cloth-settle-tolerance-value').value==='0.50%'"),'Redrape preserves the auto-stop preference and tolerance');
+     await run("document.getElementById('cloth-pause').click();document.getElementById('cloth-breeze').value=25;document.getElementById('cloth-breeze').dispatchEvent(new Event('input'))");
+     assert(await run('peelDebug.cloth.simulation.paused'),'Edits never override manual pause');
+     await run("document.getElementById('cloth-auto-settle').click();document.querySelector('[data-metal=iron]').click()");
+   }
+   assert.equal(errors.length,0,JSON.stringify(errors));console.log('PASS: settled cloth stops physics and geometry, Resume and edit behavior, manual pause and desktop/mobile status.');
+ }else if(process.argv.includes('--rope-points-only')){
+   for(const mobile of [false,true]){
+     if(mobile)await call('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
+     await run("document.querySelector('[data-shape=sphere]').click();document.getElementById('cloth-material').click();peelDebug.cloth.rebuild([peelDebug.core],{resolution:12,ropePoints:peelDebug.state.clothSettings.ropePoints});for(let i=0;i<180;i++)peelDebug.cloth.advance(1/60);document.getElementById('cloth-add-rope').click();for(let i=0;i<420;i++)peelDebug.cloth.advance(1/60)");
+     assert(await run("peelDebug.cloth.ropes.stats[0].status==='tied'"));
+     const result=await run(`(()=>{
+       const cloth=peelDebug.cloth,sim=cloth.simulation,before=sim.positions.slice(),stats=cloth.ropes.stats[0],input=document.getElementById('cloth-rope-points');
+       if(document.getElementById('cloth-options').hidden)document.getElementById('cloth-settings-toggle').click();
+       input.scrollIntoView({block:'center'});input.value=384;input.dispatchEvent(new Event('input'));
+       const rect=input.getBoundingClientRect();
+       return {same:sim===cloth.simulation,unchanged:before.every((v,i)=>v===sim.positions[i]),points:cloth.ropes.pointCount,vertices:cloth.ropes.group.getObjectByName('Cloth binding rope').geometry.attributes.position.count,attached:stats.attachments===cloth.ropes.stats[0].attachments,reachable:document.elementFromPoint(rect.left+rect.width/2,rect.top+rect.height/2)===input,output:document.getElementById('cloth-rope-points-value').value};
+     })()`);
+     assert(result.same&&result.unchanged&&result.points===384&&result.vertices===385*8&&result.attached&&result.reachable&&result.output==='384',JSON.stringify(result));
+     await run("document.getElementById('cloth-redrape').click()");
+     assert(await run('peelDebug.cloth.ropes.pointCount===384'),'Redrape retains rope detail');
+     await run("document.querySelector('[data-metal=iron]').click()");
+   }
+   assert.equal(errors.length,0,JSON.stringify(errors));console.log('PASS: live rope point counts, attachment preservation, redrape and reachable controls on desktop/mobile.');
+ }else if(process.argv.includes('--cloth-fabrics-only')){
    for(const mobile of [false,true]){
      if(mobile)await call('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
      await run("document.querySelector('[data-shape=sphere]').click();document.getElementById('cloth-material').click();if(document.getElementById('cloth-options').hidden)document.getElementById('cloth-settings-toggle').click()");
      const layout=await run("(()=>{const r=document.getElementById('cloth-options').getBoundingClientRect();return {left:r.left,top:r.top,right:r.right,bottom:r.bottom}})()");
      assert(layout.left>=0&&layout.left<50&&layout.top>=0&&layout.right<= (mobile?390:1050),'Left settings panel fits the viewport: '+JSON.stringify(layout));
      await run('for(let i=0;i<180;i++)peelDebug.cloth.advance(1/60)');
-     for(const fabric of ['wool','duvet','linen']){
+     for(const fabric of ['plastic','wool','duvet','linen']){
        const result=await run(`(()=>{const cloth=peelDebug.cloth,sim=cloth.simulation,time=sim.time;document.querySelector('[name=cloth-fabric][value=${fabric}]').click();for(let i=0;i<30;i++)cloth.advance(1/60);peelDebug.featherRenderer.render(peelDebug.scene,peelDebug.camera);return {fabric:peelDebug.state.clothSettings.fabric,same:sim===cloth.simulation,time:cloth.simulation.time>time,finite:cloth.simulation.positions.every(Number.isFinite),lining:!!cloth.mesh.getObjectByName('Fabric reverse'),hem:cloth.mesh.getObjectByName('Fabric hem').geometry.attributes.position.count};})()`);
        assert(result.fabric===fabric&&result.same&&result.time&&result.finite&&result.lining&&result.hem>0,JSON.stringify(result));
+       if(fabric==='plastic'){
+         const edited=await run(`(()=>{
+           const cloth=peelDebug.cloth,sim=cloth.simulation,before=sim.positions.slice();
+           for(const [key,value] of [['gloss',21],['translucency',0],['crinkle',75],['tint','#b5c7df']]){
+             const input=document.getElementById('cloth-'+key);input.scrollIntoView({block:'center'});input.value=value;input.dispatchEvent(new Event('input'));
+             const rect=input.getBoundingClientRect();if(document.elementFromPoint(rect.left+rect.width/2,rect.top+rect.height/2)!==input)throw Error(key+' is not reachable');
+           }
+           peelDebug.featherRenderer.render(peelDebug.scene,peelDebug.camera);
+           return {same:cloth.simulation===sim,unchanged:before.every((v,i)=>v===sim.positions[i]),roughness:cloth.mesh.material.roughness,transmission:cloth.mesh.material.transmission,bump:cloth.mesh.material.bumpScale,color:cloth.mesh.material.color.getHexString()};
+         })()`);
+         assert(edited.same&&edited.unchanged&&Math.abs(edited.roughness-.79)<1e-6&&edited.transmission===0&&Math.abs(edited.bump-.075)<1e-6&&edited.color==='b5c7df',JSON.stringify(edited));
+         await run("var input=document.getElementById('cloth-translucency');input.value=82;input.dispatchEvent(new Event('input'));document.getElementById('cloth-redrape').click();peelDebug.featherRenderer.render(peelDebug.scene,peelDebug.camera)");
+         assert(await run("peelDebug.cloth.plasticSettings.translucency===.82&&peelDebug.cloth.mesh.material.color.getHexString()==='b5c7df'"),'Redrape retains finish edits');
+         await run("document.getElementById('cloth-plastic-reset').click();document.getElementById('cloth-options').scrollTop=0");
+         assert(await run("peelDebug.cloth.plasticSettings.gloss===.83&&document.getElementById('cloth-gloss-value').value==='83%'&&document.getElementById('cloth-tint').value==='#e8e9ed'"),'Reset restores the reference finish and controls');
+       }else assert(await run("document.getElementById('cloth-plastic-settings').hidden"),'Plastic controls only appear for plastic');
        const shot=await call('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});await writeFile(`/private/tmp/oxide-fabric-${fabric}${mobile?'-mobile':''}.png`,Buffer.from(shot.result.data,'base64'));
      }
      await run("document.getElementById('cloth-settings-close').click()");assert(await run("document.getElementById('cloth-options').hidden&&document.getElementById('cloth-settings-toggle').getAttribute('aria-expanded')==='false'"));
@@ -43,7 +145,7 @@ try{
      assert(await run("peelDebug.cloth.fabric.name==='Two-sided duvet'"),'Redrape preserves fabric choice');
      await run("document.querySelector('[data-metal=iron]').click()");assert(await run("document.getElementById('cloth-controls').hidden&&peelDebug.cloth.mesh===null"));
    }
-   assert.equal(errors.length,0,JSON.stringify(errors));console.log('PASS: left cloth panel, three fabric finishes, two-sided shell, live switching and redrape on desktop/mobile.');
+   assert.equal(errors.length,0,JSON.stringify(errors));console.log('PASS: left cloth panel, four material finishes, two-sided shell, live switching and redrape on desktop/mobile.');
  }else if(process.argv.includes('--horse-cloth-only')){
    await checkHorseClothContacts({run,call,delay,assert});
    await call('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});

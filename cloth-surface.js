@@ -4,10 +4,10 @@ import {createClothRopes} from './cloth-rope.js';
 import {createClothSimulation} from './cloth-simulation.js';
 import {createFabricFinish} from './cloth-fabric.js';
 
-export function createClothSurface({scene,floorY=-1.75}){
+export function createClothSurface({scene,floorY=-1.75,onSettle=()=>{}}){
   const finish=createFabricFinish(),material=finish.front;
   let lining=null,hem=null,hemEdges=[];
-  let mesh=null,simulation=null,collider=null,ropes=null,parameters=[],triangles=[],ringX=null,ringZ=null,ringY=null;
+  let mesh=null,simulation=null,collider=null,ropes=null,parameters=[],triangles=[];
   function buildDisplayGeometry(values){
     const geometry=new THREE.BufferGeometry();
     geometry.setAttribute('position',new THREE.Float32BufferAttribute(values??new Float32Array(parameters.length/2*3),3).setUsage(THREE.DynamicDrawUsage));
@@ -36,12 +36,10 @@ export function createClothSurface({scene,floorY=-1.75}){
     const source=simulation.positions,n=simulation.columns,x=u*n,z=v*n,column=Math.min(n-1,Math.floor(x)),row=Math.min(n-1,Math.floor(z)),fx=x-column,fz=z-row;
     const a=(row*(n+1)+column)*3,b=a+3,c=a+(n+1)*3,d=c+3;
     for(let axis=0;axis<3;axis++)target[index+axis]=(source[a+axis]*(1-fx)+source[b+axis]*fx)*(1-fz)+(source[c+axis]*(1-fx)+source[d+axis]*fx)*fz;
-    if(simulation.radial){
-      const cx=ringX[row]*(1-fz)+ringX[row+1]*fz,cz=ringZ[row]*(1-fz)+ringZ[row+1]*fz,angle=u*Math.PI*2,radius=Math.hypot(target[index]-cx,target[index+2]-cz);
-      target[index+1]=ringY[row]*(1-fz)+ringY[row+1]*fz;
-      target[index]=cx+Math.cos(angle)*radius;target[index+2]=cz+Math.sin(angle)*radius;
-      collider.projectWrap(target,index,.065,angle,cx,cz);
-    }else{collider.project(target,index,.08);collider.projectWrap(target,index,.065);}
+    // Preserve the simulated folds; contact correction only moves samples
+    // that would otherwise intersect the specimen between simulation nodes.
+    collider.project(target,index,.08);collider.projectWrap(target,index,.065);
+    if(collider.topCoverage>=.35&&target[index+1]>collider.bounds.max.y-.2)collider.projectRoof(target,index,.065);
     target[index+1]=Math.max(floorY+.012,target[index+1]);
   }
   function refineDisplay(){
@@ -77,16 +75,6 @@ export function createClothSurface({scene,floorY=-1.75}){
   }
   function syncGeometry(){
     if(!mesh||!simulation)return;
-    if(simulation.radial){
-      const n=simulation.columns,source=simulation.positions;ringX??=new Float64Array(n+1);ringZ??=new Float64Array(n+1);ringY??=new Float64Array(n+1);ringX.fill(0);ringZ.fill(0);ringY.fill(0);
-      for(let row=0;row<=n;row++)for(let col=0;col<n;col++){const i=(row*(n+1)+col)*3;ringX[row]+=source[i]/n;ringZ[row]+=source[i+2]/n;ringY[row]+=source[i+1]/n;}
-      // Material rings stay ordered vertically, so a limb cannot slip through
-      // a folded-back panel while the rope gathers the sheet.
-      for(let row=1;row<=n;row++)ringY[row]=Math.min(ringY[row],ringY[row-1]-.001);
-      // Keep enough hem below the lowest limbs as the gathered rings settle.
-      const fall=Math.min(1,Math.max(0,(simulation.time-1)/2.2)),hem=Math.max(0,ringY[n]-(floorY+.012))*fall*fall*(3-2*fall);
-      for(let row=1;row<=n;row++)ringY[row]-=hem*(row/n)**4;
-    }
     const target=mesh.geometry.attributes.position.array;
     for(let i=0;i<parameters.length;i+=2)evaluate(parameters[i],parameters[i+1],target,i/2*3);
     refineDisplay();mesh.geometry.attributes.position.needsUpdate=true;mesh.geometry.computeVertexNormals();
@@ -99,21 +87,28 @@ export function createClothSurface({scene,floorY=-1.75}){
       hem.geometry.attributes.position.needsUpdate=true;hem.geometry.computeVertexNormals();
     }
   }
-  function clear(){hem?.geometry.dispose();hem=null;lining=null;hemEdges=[];ropes?.dispose();ropes=null;mesh?.removeFromParent();mesh?.geometry.dispose();mesh=null;simulation=null;collider=null;parameters=[];triangles=[];ringX=null;ringZ=null;ringY=null;}
+  function clear(){hem?.geometry.dispose();hem=null;lining=null;hemEdges=[];ropes?.dispose();ropes=null;mesh?.removeFromParent();mesh?.geometry.dispose();mesh=null;simulation=null;collider=null;parameters=[];triangles=[];}
   return {
     get mesh(){return mesh;},get simulation(){return simulation;},get collider(){return collider;},get ropes(){return ropes;},
     get fabric(){return finish.preset;},
-    setFabric(key){finish.setFabric(key);simulation?.setFabric(finish.preset);if(mesh)syncGeometry();},
+    get plasticSettings(){return finish.plasticSettings;},
+    setPlasticSettings(values){finish.setPlasticSettings(values);},
+    setFabric(key){finish.setFabric(key);simulation?.setFabric(finish.preset);if(lining)lining.visible=!finish.preset.transmission;if(mesh)syncGeometry();},
     setRopes(settings){ropes?.setRopes(settings);},
-    rebuild(meshes,{resolution=48,held=true,radial=false,fabric='linen',ropes:ropeSettings=[]}={}){
+    setRopePoints(value){ropes?.setPointCount(value);},
+    rebuild(meshes,{resolution=48,held=true,radial=false,fabric='linen',ropes:ropeSettings=[],ropePoints=96,autoSettle=true,settleTolerance=.003}={}){
       clear();finish.setFabric(fabric);if(!meshes.length)return;
-      collider=createClothCollider(meshes);const bounds=collider.bounds,size=bounds.getSize(new THREE.Vector3()),center=bounds.getCenter(new THREE.Vector3()),drop=bounds.max.y-floorY;
-      simulation=createClothSimulation({columns:resolution,rows:resolution,width:Math.max(3,size.x+drop*1.35),depth:Math.max(3,size.z+drop*1.35),centerX:center.x,centerZ:center.z,height:bounds.max.y+.28,floorY,collider,pin:collider.support,held,radial});
+      collider=createClothCollider(meshes);
+      // Broad roofs need a rectangular sheet. The radial mesh used around
+      // narrow, irregular imports bunches its center over a flat roof.
+      const imported=radial;radial=radial&&collider.topCoverage<.35;
+      const bounds=collider.bounds,size=bounds.getSize(new THREE.Vector3()),center=bounds.getCenter(new THREE.Vector3()),drop=bounds.max.y-floorY,overhang=drop*(imported?2.1:1.35);
+      simulation=createClothSimulation({columns:resolution,rows:resolution,width:Math.max(3,size.x+overhang),depth:Math.max(3,size.z+overhang),centerX:center.x,centerZ:center.z,height:bounds.max.y+.28,floorY,collider,pin:collider.support,held,radial,autoSettle,settleTolerance,onSettle});
       simulation.setFabric(finish.preset);
-      ropes=createClothRopes({scene,collider,positions:simulation.positions,columns:resolution,rows:resolution,clearance:simulation.contactPadding});ropes.setRopes(ropeSettings);simulation.setTies(ropes);
+      ropes=createClothRopes({scene,collider,positions:simulation.positions,columns:resolution,rows:resolution,clearance:simulation.contactPadding,points:ropePoints});ropes.setRopes(ropeSettings);simulation.setTies(ropes);
       const geometry=new THREE.BufferGeometry();
       mesh=new THREE.Mesh(geometry,material);mesh.name='Draped cloth';
-      lining=new THREE.Mesh(geometry,finish.back);lining.name='Fabric reverse';lining.frustumCulled=false;mesh.add(lining);
+      lining=new THREE.Mesh(geometry,finish.back);lining.name='Fabric reverse';lining.frustumCulled=false;lining.visible=!finish.preset.transmission;mesh.add(lining);
       hem=new THREE.Mesh(new THREE.BufferGeometry(),finish.edge);hem.name='Fabric hem';hem.frustumCulled=false;mesh.add(hem);
       mesh.castShadow=true;mesh.receiveShadow=true;mesh.frustumCulled=false;scene.add(mesh);initializeDisplay();syncGeometry();
     },

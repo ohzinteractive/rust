@@ -76,14 +76,30 @@
         <section id="cloth-options" class="feather-options cloth-options" aria-label="Cloth settings">
           <div class="feather-menu-heading"><h2>Cloth settings</h2><button id="cloth-settings-close" type="button" aria-label="Close cloth settings">×</button></div>
           <fieldset class="cloth-fabrics"><legend>Fabric</legend>
+            <label><input type="radio" name="cloth-fabric" value="plastic"><span>Pearl plastic<small>Glossy, translucent crinkles</small></span></label>
             <label><input type="radio" name="cloth-fabric" value="linen" checked><span>Ivory linen<small>Light, fine folds</small></span></label>
             <label><input type="radio" name="cloth-fabric" value="wool"><span>Heavy wool<small>Thick, soft drape</small></span></label>
             <label><input type="radio" name="cloth-fabric" value="duvet"><span>Two-sided duvet<small>Quilted ivory / dusty blue</small></span></label>
           </fieldset>
+          <fieldset id="cloth-plastic-settings" class="cloth-plastic-settings" hidden>
+            <legend>Plastic finish</legend>
+            <button id="cloth-iridescent" type="button">Iridescent film preset</button>
+            <div class="feather-setting"><div><label for="cloth-gloss">Gloss</label><output id="cloth-gloss-value" for="cloth-gloss">83%</output></div><input id="cloth-gloss" type="range" min="0" max="100" value="83"></div>
+            <div class="feather-setting"><div><label for="cloth-translucency">Translucency</label><output id="cloth-translucency-value" for="cloth-translucency">68%</output></div><input id="cloth-translucency" type="range" min="0" max="100" value="68"></div>
+            <div class="feather-setting"><div><label for="cloth-crinkle">Crinkle</label><output id="cloth-crinkle-value" for="cloth-crinkle">35%</output></div><input id="cloth-crinkle" type="range" min="0" max="100" value="35"></div>
+            <div class="feather-setting"><div><label for="cloth-iridescence">Rainbow strength</label><output id="cloth-iridescence-value" for="cloth-iridescence">0%</output></div><input id="cloth-iridescence" type="range" min="0" max="100" value="0"></div>
+            <div class="feather-setting"><div><label for="cloth-colorVariation">Color variation</label><output id="cloth-colorVariation-value" for="cloth-colorVariation">65%</output></div><input id="cloth-colorVariation" type="range" min="0" max="100" value="65"></div>
+            <label class="cloth-tint" for="cloth-tint">Tint<input id="cloth-tint" type="color" value="#e8e9ed"></label>
+            <button id="cloth-plastic-reset" type="button">Reset plastic finish</button>
+          </fieldset>
         <div class="cloth-heading"><button id="cloth-redrape" type="button">Redrape</button><button id="cloth-pause" type="button" aria-pressed="false">Pause</button></div>
+        <label class="cloth-hold"><input id="cloth-auto-settle" type="checkbox" checked> Auto-stop when settled</label>
+        <div class="feather-setting"><div><label for="cloth-settle-tolerance">Settle tolerance</label><output id="cloth-settle-tolerance-value" for="cloth-settle-tolerance">0.30%</output></div><input id="cloth-settle-tolerance" type="range" min="5" max="100" step="5" value="30" aria-describedby="cloth-settle-help"><p id="cloth-settle-help">Higher values stop sooner. Resume or edit the drape to animate again.</p></div>
+        <p id="cloth-settle-status" role="status" aria-live="polite">Settling…</p>
         <label class="cloth-breeze" for="cloth-breeze">Breeze<input id="cloth-breeze" type="range" min="0" max="100" value="12"></label>
         <label class="cloth-hold"><input id="cloth-held" type="checkbox" checked> Hold at top</label><p>Gravity drapes the fabric over a still pose.</p>
-        <div class="cloth-rope-heading"><span>ROPES</span><button id="cloth-add-rope" type="button">+ Add rope</button></div>
+        <div class="cloth-rope-heading"><span>BINDINGS</span><div><button id="cloth-add-rope" type="button">+ Add rope</button><button id="cloth-add-ribbon" type="button">+ Add ribbon</button></div></div>
+        <div class="feather-setting"><div><label for="cloth-rope-points">Rope points</label><output id="cloth-rope-points-value" for="cloth-rope-points">96</output></div><input id="cloth-rope-points" type="range" min="96" max="384" step="32" value="96" aria-describedby="cloth-rope-points-help"><p id="cloth-rope-points-help">Points per rope loop or ribbon turn. Higher values refine the bends.</p></div>
         <div id="cloth-rope-list" aria-label="Cloth ropes"></div>
         </section>
       </div>

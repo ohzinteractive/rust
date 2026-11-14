@@ -2,7 +2,7 @@ const STEP=1/90;
 
 // Position-based cloth: structural, shear and bending distances preserve the
 // sheet while gravity and contact gather the spare fabric into folds.
-export function createClothSimulation({columns=48,rows=48,width=7,depth=7,centerX=0,centerZ=0,height=2,floorY=-1.75,collider,pin=null,held=true,radial=false}){
+export function createClothSimulation({columns=48,rows=48,width=7,depth=7,centerX=0,centerZ=0,height=2,floorY=-1.75,collider,pin=null,held=true,radial=false,autoSettle=true,settleTolerance=.003,onSettle=()=>{}}){
   const spacing=Math.max(width/columns,depth/rows);let contactPadding=.035,damping=.96;
   const count=(columns+1)*(rows+1),positions=new Float32Array(count*3),previous=new Float32Array(count*3),links=[];
   for(let z=0;z<=rows;z++)for(let x=0;x<=columns;x++){
@@ -40,7 +40,38 @@ export function createClothSimulation({columns=48,rows=48,width=7,depth=7,center
   }
   if(radial)for(let z=0;z<=rows;z++)links.push(z*(columns+1)*3,(z*(columns+1)+columns)*3,0,1);
   const constraints=new Float32Array(links);let accumulator=0,time=0,paused=false,breeze=.12;
-  const probe=new Float64Array(3);let ties=null;
+  const probe=new Float64Array(3);let ties=null,tiesRevision=0;
+  const beforeStep=positions.slice(),settleAnchor=positions.slice();
+  let sleeping=false,awakeSince=0,windowTime=0,quietWindows=0,windowMotion=0,windowSteps=0;
+  let meanMovement=0,maxMovement=0,meanDrift=0,maxDrift=0;
+  const settleScale=Math.max(1,height-floorY);
+  function wake(){
+    if(sleeping)previous.set(positions);
+    sleeping=false;awakeSince=time;windowTime=0;quietWindows=0;windowMotion=0;windowSteps=0;accumulator=0;
+    settleAnchor.set(positions);
+  }
+  function checkSettled(){
+    let sum=0,max=0;
+    for(let i=0;i<positions.length;i+=3){
+      const distance=(positions[i]-beforeStep[i])**2+(positions[i+1]-beforeStep[i+1])**2+(positions[i+2]-beforeStep[i+2])**2;
+      sum+=distance;max=Math.max(max,distance);
+    }
+    meanMovement=Math.sqrt(sum/count);maxMovement=Math.sqrt(max);
+    const limit=settleScale*settleTolerance;
+    windowMotion+=meanMovement*meanMovement;windowSteps++;
+    windowTime+=STEP;if(windowTime<.5)return;
+    // Check cumulative drift too: many tiny steps can still move a hanging
+    // corner noticeably. Both overall drift and the largest local movements must stay bounded.
+    sum=0;max=0;
+    for(let i=0;i<positions.length;i+=3){
+      const distance=(positions[i]-settleAnchor[i])**2+(positions[i+1]-settleAnchor[i+1])**2+(positions[i+2]-settleAnchor[i+2])**2;
+      sum+=distance;max=Math.max(max,distance);
+    }
+    meanDrift=Math.sqrt(sum/count);maxDrift=Math.sqrt(max);
+    quietWindows=Math.sqrt(windowMotion/windowSteps)<limit&&meanDrift<limit*3&&maxDrift<limit*48&&!ties?.pending?quietWindows+1:0;
+    windowTime=0;windowMotion=0;windowSteps=0;settleAnchor.set(positions);
+    if(time-awakeSince>=3&&quietWindows>=3){sleeping=true;previous.set(positions);onSettle();}
+  }
   function faceContact(a,b,c){
     probe[0]=(positions[a]+positions[b]+positions[c])/3;
     probe[1]=(positions[a+1]+positions[b+1]+positions[c+1])/3;
@@ -81,6 +112,7 @@ export function createClothSimulation({columns=48,rows=48,width=7,depth=7,center
     }
   }
   function step(){
+    if(autoSettle)beforeStep.set(positions);
     time+=STEP;ties?.advance(STEP);
     for(let i=0;i<positions.length;i+=3){
       const x=positions[i],y=positions[i+1],z=positions[i+2];
@@ -117,20 +149,28 @@ export function createClothSimulation({columns=48,rows=48,width=7,depth=7,center
       }
     }
     hold();
+    if(autoSettle)checkSettled();
   }
   return {positions,columns,rows,get contactPadding(){return contactPadding;},radial,
     setFabric({bend=.03,damping:drag=.96,thickness=.008}={}){
       damping=drag;contactPadding=.035+Math.max(0,thickness-.008)*.5;
       for(let i=0;i<constraints.length;i+=4)if(constraints[i+3]<.5)constraints[i+3]=bend;
+      wake();
     },
-    setTies(value){ties=value;},
-    get held(){return held;},set held(value){held=!!value;},
-    get time(){return time;},get paused(){return paused;},set paused(value){paused=!!value;accumulator=0;},
-    set breeze(value){breeze=Math.max(0,Math.min(1,value));},
+    setTies(value){ties=value;tiesRevision=ties?.revision??0;wake();},
+    wake,get sleeping(){return sleeping;},
+    get movement(){return {mean:meanMovement,max:maxMovement,driftMean:meanDrift,driftMax:maxDrift};},
+    get autoSettle(){return autoSettle;},set autoSettle(value){autoSettle=!!value;wake();},
+    get settleTolerance(){return settleTolerance;},set settleTolerance(value){if(Number.isFinite(value)){settleTolerance=Math.max(.0005,Math.min(.01,value));wake();}},
+    get held(){return held;},set held(value){if(held!==!!value){held=!!value;wake();}},
+    get time(){return time;},get paused(){return paused;},set paused(value){paused=!!value;if(!paused)wake();else accumulator=0;},
+    get breeze(){return breeze;},set breeze(value){const next=Math.max(0,Math.min(1,value));if(next!==breeze){breeze=next;wake();}},
     advance(dt){
       if(paused||!(dt>0))return false;
+      if(tiesRevision!==(ties?.revision??0)){tiesRevision=ties?.revision??0;wake();}
+      if(sleeping)return false;
       accumulator=Math.min(accumulator+Math.min(dt,.05),STEP*4);let updated=false;
-      while(accumulator>=STEP){step();accumulator-=STEP;updated=true;}
+      while(accumulator>=STEP){step();accumulator-=STEP;updated=true;if(sleeping){accumulator=0;break;}}
       return updated;
     }
   };
