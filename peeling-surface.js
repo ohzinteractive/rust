@@ -33,11 +33,13 @@ export class PeelingSurface {
     this.lastDeformation=null;
     const rng=seededRandom(this.state.seed),positions=[],rest=[],layers=[],backs=[],ages=[],edges=[],indices=[];
     const patches=surfacePatches(faceBases,this.state.shape);
+    const area=patches.reduce((sum,face)=>sum+(face.area??0),0);
     for(const face of patches){
       const sites=[],extent=1.318,patternSeed=this.state.seed*.0127;
+      const siteCount=area?Math.max(1,Math.round(294*face.area/area)):Math.floor(294/patches.length);
       // Unevenly clustered sites produce large surviving sheets alongside
       // small chips, without increasing the rigid-body count.
-      for(let attempt=0;sites.length<Math.floor(294/patches.length)&&attempt<5000;attempt++){
+      for(let attempt=0;sites.length<siteCount&&attempt<5000;attempt++){
         const x=(rng()*2-1)*extent,y=(rng()*2-1)*extent;
         const density=noise(x*2.2+patternSeed,y*2.2,7);
         if(rng()>.12+.88*density*density)continue;

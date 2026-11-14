@@ -1,4 +1,5 @@
 import * as CANNON from './vendor/cannon-es.js';
+import { getMazeLayout } from './maze-geometry.js';
 
 const FIXED_STEP = 1 / 60;
 const MAX_FRAME_TIME = 0.05;
@@ -311,7 +312,13 @@ export function createFlakePhysics({
     for(const body of importedColliders)world.removeBody(body);
     importedColliders.length=0;
     for(const collider of [...cube.shapes])cube.removeShape(collider);
-    if(shape==='sphere')cube.addShape(new CANNON.Sphere(1.432));
+    if(shape==='maze'){
+      for(const hull of getMazeLayout().hulls){
+        const center=hull.vertices.reduce((sum,v)=>sum.vadd(new CANNON.Vec3(v.x,v.y,v.z)),new CANNON.Vec3()).scale(1/hull.vertices.length);
+        const vertices=hull.vertices.map(v=>new CANNON.Vec3(v.x-center.x,v.y-center.y,v.z-center.z));
+        cube.addShape(optimizeCollisionAxes(new CANNON.ConvexPolyhedron({vertices,faces:outwardFaces(vertices,hull.faces)})),center);
+      }
+    }else if(shape==='sphere')cube.addShape(new CANNON.Sphere(1.432));
     else if(shape==='pill'){
       cube.addShape(new CANNON.Cylinder(.802,.802,1.3,24));
       cube.addShape(new CANNON.Sphere(.802),new CANNON.Vec3(0,.65,0));

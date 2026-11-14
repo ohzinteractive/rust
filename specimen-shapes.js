@@ -1,9 +1,16 @@
 import * as THREE from 'three';
+import { createMazeGeometry, getMazeLayout } from './maze-geometry.js';
 
-export const shapeNames={cube:'Cube',cone:'Cone',sphere:'Sphere',plus:'Plus',pill:'Pill'};
+export const shapeNames={cube:'Cube',cone:'Cone',sphere:'Sphere',plus:'Plus',pill:'Pill',maze:'Maze'};
 const V=(x,y,z)=>new THREE.Vector3(x,y,z);
 
 export function projectSurface(point,face,shape){
+  if(shape==='maze'){
+    const s=THREE.MathUtils.clamp((point.dot(face.u)/1.318+1)/2,0,1),t=THREE.MathUtils.clamp((point.dot(face.v)/1.318+1)/2,0,1);
+    const [a,b,c,d]=face.corners;
+    const position=a.clone().lerp(b,s).lerp(d.clone().lerp(c,s),t).addScaledVector(face.n,.003);
+    return {position,normal:face.n.clone()};
+  }
   if(shape==='plus'){
     const position=face.center.clone().addScaledVector(face.u,point.dot(face.u)/1.318*.45).addScaledVector(face.v,point.dot(face.v)/1.318*.45);
     return {position,normal:face.n.clone()};
@@ -36,6 +43,7 @@ export function projectSurface(point,face,shape){
 }
 
 export function surfacePatches(bases,shape){
+  if(shape==='maze')return getMazeLayout().patches;
   if(shape==='cone')return bases.filter(face=>face.n.y!==1);
   if(shape!=='plus')return bases;
   const cells=[[0,0],[1,0],[-1,0],[0,1],[0,-1]],patches=[];
@@ -48,7 +56,8 @@ export function surfacePatches(bases,shape){
 
 export function createShapeGeometry(shape){
   let geometry;
-  if(shape==='sphere')geometry=new THREE.SphereGeometry(1.432,64,40);
+  if(shape==='maze')geometry=createMazeGeometry();
+  else if(shape==='sphere')geometry=new THREE.SphereGeometry(1.432,64,40);
   else if(shape==='pill')geometry=new THREE.CapsuleGeometry(.802,1.3,12,48);
   else if(shape==='cone')geometry=new THREE.ConeGeometry(1.29,2.72,64,32);
   else{
