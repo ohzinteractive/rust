@@ -5,15 +5,105 @@ registerHooks({resolve(s,c,next){return next(s==='three'?new URL('../vendor/thre
 const THREE = await import('../vendor/three.module.js');
 const {createSurfaceSampler, readFeatherAnchor} = await import('../feather-sampling.js');
 const {seededRandom} = await import('../plume-lsystem/random.js');
-const {createFeatherSurface} = await import('../feather-surface.js');
+const {createFeatherSurface:createDefaultFeatherSurface} = await import('../feather-surface.js');
 const {generateFeatherData, rewriteFeatherGrammar} = await import('../plume-lsystem/feather-generator.js');
 const {plumageFrame,createContourVane} = await import('../plumage-frame.js');
+
+// Keep geometry regression fixtures independent of the viewer's chosen preset.
+function createFeatherSurface() {
+  const effect=createDefaultFeatherSurface();
+  effect.setSettings({style:'layered',length:1,width:1,detail:.38,angle:26,shadow:.35});
+  return effect;
+}
 
 function fixture(geometry = new THREE.SphereGeometry(1, 32, 24)) {
   const parent = new THREE.Group(), mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial());
   parent.add(mesh); parent.updateMatrixWorld(true);
   return {parent, mesh};
 }
+
+test('maze scale shrinks feathers and follicles, while viewport batches retain stable roots and only draw visible instances',()=>{
+  const {parent,mesh}=fixture(new THREE.PlaneGeometry(2,2)),effect=createFeatherSurface();
+  effect.rebuild([mesh],parent,100,71);
+  const baseline=effect.group.children.find(batch=>batch.isLineSegments).geometry.attributes.featherScale.getX(0);
+  const before=new THREE.Matrix4();effect.follicleGroup.children[0].getMatrixAt(0,before);
+  effect.rebuild([mesh],parent,100,71,{scale:.025,viewport:true,shadowDistance:.02});
+  assert.equal(effect.shadowContactDistance,.02,'Maze contact shadows must remain shorter than a passage width');
+  const batches=()=>effect.group.children.filter(batch=>batch.isLineSegments);
+  assert.equal(effect.stats.visibleCount,0,'No instances are submitted before visibility is known');
+  assert.equal(effect.stats.count,0,'Offscreen surfaces must not be sampled in advance');
+  const camera=new THREE.PerspectiveCamera(25,1,.001,20);camera.position.set(0,0,2);camera.lookAt(0,0,0);
+  effect.updateView(camera);
+  const count=effect.stats.count,visible=effect.stats.visibleCount;
+  assert(visible>0&&visible<=count&&count<effect.stats.surfaceArea*100,'Only the visible surface and feather bounds receive roots');
+  assert(batches().every(batch=>batch.userData.allAnchors.every(sample=>sample.scale<baseline*.033)));
+  const roots=()=>batches().flatMap(batch=>batch.userData.anchors.map(sample=>sample.key)).sort();
+  const original=roots(),version=effect.shadowVersion;
+  effect.updateView(camera);assert.equal(effect.shadowVersion,version,'A still camera must reuse its compacted batches');
+  for(const batch of effect.group.children){
+    assert.equal(batch.geometry.instanceCount,batch.userData.anchors.length);
+    for(let i=0;i<batch.geometry.instanceCount;i++){
+      assert.equal(batch.userData.anchors[i].slot,i);
+      assert(new THREE.Vector3().fromBufferAttribute(batch.geometry.attributes.featherPosition,i).distanceTo(batch.userData.anchors[i].anchorPosition)<1e-6);
+    }
+  }
+  const follicles=effect.follicleGroup.children[0],after=new THREE.Matrix4();
+  assert(follicles.count>0&&follicles.count<=count);follicles.getMatrixAt(0,after);
+  assert.equal(effect.substrate.userData.skinDetailScale.value,40,'Maze skin detail must match its miniature follicles');
+  assert(after.getMaxScaleOnAxis()<before.getMaxScaleOnAxis()*.04,'Follicle openings must shrink too');
+  camera.lookAt(0,0,4);effect.updateView(camera);
+  assert.equal(effect.stats.visibleCount,0);assert.equal(follicles.count,0);
+  camera.lookAt(0,0,0);effect.updateView(camera);assert.deepEqual(roots(),original,'Turning back must restore the same roots');
+  effect.setSettings({style:'plume',length:2,detail:.2});effect.updateView(camera);
+  assert(effect.stats.visibleCount>0);assert(effect.stats.count>=count,'A longer feather may require roots just outside the frame');
+  camera.lookAt(0,0,4);effect.updateView(camera);
+  assert.equal(effect.stats.count,0);assert.equal(effect.launchAll(),0,'Hidden surfaces must have no feathers or simulation bodies');
+  camera.lookAt(0,0,0);effect.updateView(camera);
+  const launched=effect.stats.count;assert.equal(effect.launchAll(),launched);
+  camera.lookAt(0,0,4);effect.updateView(camera);
+  assert.equal(effect.flyingCount,launched,'Explicitly launched feathers retain their flight across camera changes');
+  effect.advance(1/60,camera,new THREE.Vector3());effect.updateView(camera);
+  for(const batch of batches())for(const name of ['featherPosition','featherRotation','featherScale'])assert(batch.geometry.attributes[name].array.every(Number.isFinite));
+  effect.returnAll();
+  for(let i=0;i<1800&&effect.flyingCount;i++){effect.advance(1/60,camera,new THREE.Vector3());if(i%30===0)effect.updateView(camera);}
+  assert.equal(effect.flyingCount,0,'Visible-only roots must still return after the camera turns away');
+  effect.updateView(camera);assert.equal(effect.stats.count,0,'Settled offscreen roots must be released');
+  effect.dispose();mesh.geometry.dispose();mesh.material.dispose();
+});
+
+test('a feather remains when its root leaves the frame but its tip is still visible',()=>{
+  const {parent,mesh}=fixture(new THREE.PlaneGeometry(2,2)),effect=createFeatherSurface();
+  effect.setSettings({length:2,lift:22});effect.rebuild([mesh],parent,500,71,{scale:.025,viewport:true});
+  const camera=new THREE.PerspectiveCamera(25,1,.001,20);camera.position.set(0,0,2);camera.lookAt(0,0,0);effect.updateView(camera);
+  const all=()=>effect.group.children.filter(batch=>batch.isLineSegments).flatMap(batch=>batch.userData.allAnchors);
+  const sample=all().find(sample=>Math.abs(sample.anchorPosition.x)<.2&&sample.anchorPosition.y>0&&sample.anchorPosition.y<.3);
+  assert(sample);
+  const tip=new THREE.Vector3(0,5*sample.scale*2,0).applyQuaternion(sample.anchorRotation).add(sample.anchorPosition);
+  const halfHeight=Math.tan(THREE.MathUtils.degToRad(25/2))*2;
+  camera.position.y=(sample.anchorPosition.y+tip.y)/2-halfHeight;camera.lookAt(0,camera.position.y,0);camera.updateMatrixWorld();
+  assert(sample.anchorPosition.clone().project(camera).y>1,'The root has left the viewport');
+  assert(Math.abs(tip.clone().project(camera).y)<1,'The tip remains on screen');
+  effect.updateView(camera);
+  assert(all().some(current=>current.key===sample.key&&current.slot>=0),'Visible feather geometry must survive root-only clipping');
+  camera.position.y-=4;camera.lookAt(0,camera.position.y,0);effect.updateView(camera);assert.equal(effect.stats.count,0);
+  effect.dispose();mesh.geometry.dispose();mesh.material.dispose();
+});
+
+test('the first-person body drives shared feather and shadow bending attributes while preserving roots',()=>{
+  const {parent,mesh}=fixture(new THREE.PlaneGeometry(2,2)),effect=createFeatherSurface();
+  effect.rebuild([mesh],parent,1000,71,{scale:.025,viewport:true});effect.setFirstPerson(true);
+  const camera=new THREE.PerspectiveCamera(75,1.25,.001,20);camera.position.set(0,.02,.017);camera.lookAt(0,.02,0);effect.updateView(camera);
+  const roots=new Map(effect.group.children.filter(batch=>batch.isLineSegments).flatMap(batch=>batch.userData.allAnchors.map(sample=>[sample.key,sample.anchorPosition.clone()])));
+  for(let i=0;i<60;i++){effect.interact(1/60,camera);effect.updateView(camera);}
+  assert(effect.group.children.some(batch=>batch.isLineSegments&&batch.geometry.attributes.featherPush.array.some(value=>Math.abs(value)>.001)));
+  for(const batch of effect.group.children){
+    for(const sample of batch.userData.anchors)if(roots.has(sample.key))assert(sample.anchorPosition.equals(roots.get(sample.key)));
+    if(batch.userData.sourceBatch)assert.equal(batch.geometry.attributes.featherPush,batch.userData.sourceBatch.geometry.attributes.featherPush);
+  }
+  effect.setFirstPerson(false);effect.updateView(camera);
+  assert(effect.group.children.every(batch=>batch.userData.anchors.every(sample=>!sample.push||sample.push.length()===0)));
+  effect.dispose();mesh.geometry.dispose();mesh.material.dispose();
+});
 
 test('sampling uses transformed area, material visibility and draw ranges', () => {
   const geometry = new THREE.PlaneGeometry(2, 3).toNonIndexed();
@@ -98,6 +188,9 @@ test('feather instances follow normals, preserve roots across density changes an
   assert.equal(effect.group.children.filter(batch => batch.isLineSegments).reduce((sum, batch) => sum + batch.geometry.instanceCount, 0), 2400);
   assert.equal(effect.rebuild([mesh], parent, 50, 73).count, 1200);
   assert.equal(effect.rebuild([mesh], parent, 99, 73).count, 2376);
+  const small=fixture(new THREE.PlaneGeometry(.2,.2));
+  assert.equal(effect.rebuild([small.mesh],small.parent,100,73).count,4);
+  assert.equal(effect.rebuild([small.mesh],small.parent,1000,73).count,40,'Extended density must add ten times as many roots');
   effect.clear(); assert.equal(effect.group.parent, null);
 });
 
@@ -142,6 +235,29 @@ test('shared L-system generator is deterministic, finite and honors grammar', ()
     assert(layer.p.length > 0); assert(layer.p.every(Number.isFinite));
   }
   assert.equal(rewriteFeatherGrammar({axiom:'X', X:'F[+X][-X]', F:'FF'}, 1), 'F[+X][-X]');
+  const longer=generateFeatherData({...opts,branchLength:2});
+  assert.notDeepEqual(longer.hairs.p,data.hairs.p);
+  assert.deepEqual(longer.barbs.p,data.barbs.p);assert.deepEqual(longer.shaft.p,data.shaft.p);
+  const regular=generateFeatherData({...opts,branchRandomness:0});
+  assert.notDeepEqual(regular.hairs.p,data.hairs.p);assert.deepEqual(regular.barbs.p,data.barbs.p);
+  assert(regular.hairs.p.every(Number.isFinite));
+  assert.deepEqual(generateFeatherData({...opts,branchRandomness:10}),data);
+  assert.deepEqual(generateFeatherData({...opts,branchRandomness:-1}),regular);
+});
+
+test('grammar and generation edits rebuild branching geometry without moving mesh roots',()=>{
+  const {parent,mesh}=fixture(new THREE.PlaneGeometry(2,2)),effect=createFeatherSurface();
+  effect.setSettings({style:'plume'});effect.rebuild([mesh],parent,2,73);
+  const roots=()=>effect.group.children.map(batch=>[...batch.geometry.attributes.featherPosition.array]);
+  const before=roots(),geometry=effect.group.children[0].geometry,vertices=geometry.attributes.position.count;
+  let disposed=0;geometry.addEventListener('dispose',()=>disposed++);
+  effect.launchAll();assert.equal(effect.flyingCount,effect.stats.count);
+  effect.setSettings({axiom:'F',ruleF:'F[+F]F[-F]F',generations:3,branchLength:2,branchRandomness:0});
+  assert.equal(effect.flyingCount,0);assert.equal(disposed,1);assert.deepEqual(roots(),before);
+  assert(effect.group.children[0].geometry.attributes.position.count>vertices);
+  for(const batch of effect.group.children)assert(batch.geometry.attributes.position.array.every(Number.isFinite));
+  effect.setSettings({generations:0,axiom:'X'});assert.deepEqual(roots(),before);
+  effect.dispose();
 });
 
 test('settings change feather appearance while retaining roots and size updates reuse geometry', () => {
@@ -174,6 +290,9 @@ test('settings change feather appearance while retaining roots and size updates 
   assert.equal(effect.group.children[0].material.transparent, false);
   assert.equal(effect.group.children[0].material.depthWrite, true);
   assert.equal(effect.translucent, false);
+  effect.setSettings({opacity:10});
+  assert.equal(effect.group.children[0].material.opacity,1,'Out-of-range opacity must clamp to a valid alpha');
+  assert.equal(effect.group.children[0].material.transparent,false);
   effect.setSettings({opacity:.4});
   effect.setHashedTransparency(true);
   assert.equal(effect.group.children[0].material.transparent, false);
@@ -183,6 +302,89 @@ test('settings change feather appearance while retaining roots and size updates 
   assert.equal(effect.translucent, false);
   assert(effect.group.children.every(batch => !batch.visible));
   effect.clear();
+});
+
+test('switching to original plumes preserves attachments and wind while replacing and disposing geometry', () => {
+  const {parent,mesh}=fixture(new THREE.BoxGeometry(2,2,2)),effect=createFeatherSurface();
+  effect.setSettings({breeze:.6,windDirection:90,opacity:.45,length:1.3});
+  effect.rebuild([mesh],parent,2,73);
+  const roots=()=>effect.group.children.filter(batch=>batch.isLineSegments).map(batch=>
+    ['featherPosition','featherRotation','featherScale'].map(key=>[...batch.geometry.attributes[key].array]));
+  const before=roots(),follicles=effect.follicleGroup.children[0],count=effect.stats.count;
+  const layered=effect.group.children[0].geometry.attributes.position.count;
+  let disposed=0;
+  for(const batch of effect.group.children)batch.geometry.addEventListener('dispose',()=>disposed++);
+  const version=effect.shadowVersion;
+  effect.setSettings({style:'plume'});
+  assert.equal(disposed,8);assert(effect.shadowVersion>version);
+  assert.equal(effect.stats.count,count);assert.equal(effect.follicleGroup.children[0],follicles);
+  assert.deepEqual(roots(),before);
+  assert.equal(effect.group.children.length,4);
+  assert(effect.group.children.every(batch=>batch.isLineSegments&&batch.customDepthMaterial));
+  const data=generateFeatherData({variation:1,seed:73,density:.38,depth:2});
+  const expected=[data.hairs,data.barbs,data.shaft].flatMap(layer=>layer.p.map((value,index)=>index%3===1?value+2.4:value));
+  assert.deepEqual([...effect.group.children[0].geometry.attributes.position.array],[...new Float32Array(expected)]);
+  assert(effect.group.children[0].geometry.attributes.position.count>layered);
+  for(const batch of effect.group.children){
+    assert.equal(batch.material.opacity,.45);assert(batch.customDepthMaterial.alphaHash);
+    const shader={uniforms:{},vertexShader:'#include <begin_vertex>',fragmentShader:'#include <opaque_fragment>'};
+    batch.material.onBeforeCompile(shader);
+    assert.equal(shader.uniforms.uFeatherBreeze.value,.6);assert.equal(shader.uniforms.uFeatherSize.value.y,1.3);
+    assert(Math.abs(shader.uniforms.uFeatherWind.value.z+1)<1e-9);
+    batch.geometry.addEventListener('dispose',()=>disposed++);
+  }
+  effect.setSettings({style:'layered'});
+  assert.equal(disposed,12);assert.equal(effect.group.children.length,8);
+  assert.equal(effect.group.children[0].geometry.attributes.position.count,layered);
+  assert.deepEqual(roots(),before);
+  effect.dispose();
+});
+
+test('the full coat flies in world space and returns to its mesh roots', () => {
+  const {parent,mesh}=fixture(new THREE.PlaneGeometry(2,2)),effect=createFeatherSurface();
+  effect.rebuild([mesh],parent,2,73);
+  const poses=()=>effect.group.children.filter(batch=>batch.isLineSegments).map(batch=>[...batch.geometry.attributes.featherPosition.array]);
+  const rest=poses(),follicles=[...effect.follicleGroup.children[0].instanceMatrix.array];
+  assert.equal(effect.launchAll(),effect.stats.count);assert.equal(effect.launchAll(),0);
+  assert.equal(effect.flyingCount,effect.stats.count);
+  for(let i=0;i<60;i++)assert(effect.advance(1/60));
+  assert.notDeepEqual(poses(),rest);
+  assert.deepEqual([...effect.follicleGroup.children[0].instanceMatrix.array],follicles);
+  const batch=effect.group.children[0],before=new THREE.Vector3().fromBufferAttribute(batch.geometry.attributes.featherPosition,0).applyMatrix4(parent.matrixWorld);
+  parent.position.x=3;parent.rotation.y=.4;effect.update();
+  const after=new THREE.Vector3().fromBufferAttribute(batch.geometry.attributes.featherPosition,0).applyMatrix4(parent.matrixWorld);
+  assert(before.distanceTo(after)<1e-5,'Moving the source mesh must not teleport a detached feather');
+  effect.returnAll();assert.equal(effect.returningCount,effect.stats.count);
+  for(let i=0;i<1800&&effect.flyingCount;i++)effect.advance(1/60);
+  assert.equal(effect.flyingCount,0);assert.equal(effect.advance(.02),false);
+  assert.deepEqual(poses(),rest);
+  const returned=new THREE.Vector3().fromBufferAttribute(batch.geometry.attributes.featherPosition,0).applyMatrix4(parent.matrixWorld);
+  assert(returned.distanceTo(before)>2,'Returned feathers must follow the source mesh in its current pose');
+  effect.launchAll();effect.setSettings({style:'plume'});assert.equal(effect.flyingCount,0);
+  effect.launchAll();effect.rebuild([mesh],parent,1,73);assert.equal(effect.flyingCount,0);
+  assert.equal(effect.launchAll(),effect.stats.count);
+  assert.equal(effect.launchAll(),0,'Launching the flock twice must not duplicate bodies');
+  for(let i=0;i<60;i++)effect.advance(1/60);
+  assert.equal(effect.flyingCount,effect.stats.count);
+  for(const batch of effect.group.children)assert([...batch.geometry.attributes.featherPosition.array].every(Number.isFinite));
+  effect.returnAll();
+  for(let i=0;i<1800&&effect.flyingCount;i++)effect.advance(1/60);
+  assert.equal(effect.flyingCount,0);assert.equal(effect.advance(.02),false);
+  effect.dispose();
+});
+
+test('instance picking finds real filaments and respects opaque mesh occlusion', () => {
+  const {parent,mesh}=fixture(new THREE.PlaneGeometry(2,2)),effect=createFeatherSurface();
+  mesh.material.side=THREE.DoubleSide;
+  effect.setSettings({style:'plume'});effect.rebuild([mesh],parent,1,73);
+  const batch=effect.group.children[0],a=batch.geometry.attributes;
+  const target=new THREE.Vector3().fromBufferAttribute(a.position,a.position.count-1).multiplyScalar(a.featherScale.getX(0));
+  target.applyQuaternion(new THREE.Quaternion().fromBufferAttribute(a.featherRotation,0)).add(new THREE.Vector3().fromBufferAttribute(a.featherPosition,0));
+  const ray=new THREE.Raycaster(target.clone().add(new THREE.Vector3(0,0,2)),new THREE.Vector3(0,0,-1));
+  assert.notEqual(effect.pick(ray),null);
+  ray.set(new THREE.Vector3(target.x,target.y,-2),new THREE.Vector3(0,0,1));
+  if(Math.abs(target.x)<1&&Math.abs(target.y)<1)assert.equal(effect.pick(ray),null);
+  effect.setSettings({opacity:0});assert.equal(effect.pick(ray),null);effect.dispose();
 });
 
 test('breeze advances only while active, preserves roots and keeps wind fixed in world space', () => {
@@ -332,5 +534,11 @@ test('skin scattering updates live without changing opacity, roots or shadow geo
   assert.equal(material.opacity,1);assert.equal(material.transparent,false);assert.equal(material.transmission,0);
   assert.equal(effect.shadowVersion,shadowVersion);
   assert.deepEqual(effect.group.children.map(batch=>[...batch.geometry.attributes.featherPosition.array]),roots);
+  effect.setSettings({subsurface:10,shadow:10,opacity:10,branchRandomness:10});
+  assert.equal(uniform.value,1);assert.equal(effect.shadowUniforms.uFeatherShadowStrength.value,1);
+  assert.equal(effect.group.children[0].material.opacity,1);
+  effect.setSettings({subsurface:-1,shadow:-1,opacity:-1,branchRandomness:-1});
+  assert.equal(uniform.value,0);assert.equal(effect.shadowUniforms.uFeatherShadowStrength.value,0);
+  assert(effect.group.children.every(batch=>!batch.visible&&batch.material.opacity===0));
   effect.dispose();
 });

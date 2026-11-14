@@ -22,7 +22,7 @@ export function rewriteFeatherGrammar(rules, depth = 3) {
   }
   return symbols;
 }
-function lsystemSprig(store, base, angle, step, phrase, random, vitality, phase, branchAngle) {
+function lsystemSprig(store, base, angle, step, phrase, random, vitality, phase, branchAngle, randomness) {
   let x = base.x;
   let y = base.y;
   let z = base.z;
@@ -31,18 +31,21 @@ function lsystemSprig(store, base, angle, step, phrase, random, vitality, phase,
   for (let i = 0; i < phrase.length; i++) {
     const symbol = phrase[i];
     if (symbol === 'F') {
-      const s = step * (0.84 + random() * 0.3);
+      const jitter = 0.84 + random() * 0.3;
+      const s = step * (jitter + (1 - jitter) * (1 - randomness));
       const nx = x + Math.cos(heading) * s;
       const ny = y + Math.sin(heading) * s;
-      const nz = z + Math.sin(phase + i * 0.25) * s * 0.18;
+      const nz = z + Math.sin(phase + i * 0.25) * s * 0.18 * randomness;
       seg(store, { x, y, z }, { x: nx, y: ny, z: nz }, vitality * (0.77 + random() * 0.2), vitality * (0.48 + random() * 0.2), 0.25);
       x = nx;
       y = ny;
       z = nz;
     } else if (symbol === '+') {
-      heading += branchAngle * (0.7 + random() * 0.6);
+      const jitter = 0.7 + random() * 0.6;
+      heading += branchAngle * (jitter + (1 - jitter) * (1 - randomness));
     } else if (symbol === '-') {
-      heading -= branchAngle * (0.7 + random() * 0.6);
+      const jitter = 0.7 + random() * 0.6;
+      heading -= branchAngle * (jitter + (1 - jitter) * (1 - randomness));
     } else if (symbol === '[') {
       stack.push([x, y, z, heading]);
     } else if (symbol === ']') {
@@ -52,8 +55,9 @@ function lsystemSprig(store, base, angle, step, phrase, random, vitality, phase,
   }
 }
 export function generateFeatherData({length = 5, spread = 1.15, variation = 1, seed = 41102,
-  depth = 3, density = .78, branchAngle = 26 * Math.PI / 180, quillFraction = 0, contour = false,
+  depth = 3, density = .78, branchAngle = 26 * Math.PI / 180, quillFraction = 0, contour = false, branchLength = 1, branchRandomness = 1,
   phrase = rewriteFeatherGrammar({axiom:'X', X:'F[+X][-X]', F:'FF'}, depth)} = {}) {
+  branchRandomness = Math.max(0,Math.min(1,branchRandomness));
   const random = seededRandom(seed * 199 + variation * 6389 + 91);
   const shaft = makeStore();
   const barbs = makeStore();
@@ -112,8 +116,8 @@ export function generateFeatherData({length = 5, spread = 1.15, variation = 1, s
       if (row % (contour ? 8 : 3) === 0 && t > 0.065 && t < 0.965) {
         const sprigBase = barbPoint((contour ? .97 : .39) + random() * (contour ? .025 : .29));
         const heading = side === 1 ? (0.32 + random() * 0.64) : (Math.PI - 0.32 - random() * 0.64);
-        const step = (0.036 + 0.037 * envelope) * (spread / 1.15) * (contour ? .18 : 1);
-        lsystemSprig(hairs, sprigBase, heading, step, phrase, random, luminance * 0.58, twist + t * 5, branchAngle);
+        const step = (0.036 + 0.037 * envelope) * (spread / 1.15) * (contour ? .18 : 1) * branchLength;
+        lsystemSprig(hairs, sprigBase, heading, step, phrase, random, luminance * 0.58, twist + t * 5, branchAngle, branchRandomness);
       }
       if (row % 6 === 0 && random() > 0.45) {
         const p = barbPoint(0.67 + random() * 0.3);

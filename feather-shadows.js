@@ -2,7 +2,11 @@ import * as THREE from 'three';
 
 export function createFeatherShadowUniforms(strength) {
   return {uFeatherShadowMap:{value:null},uFeatherShadowMatrix:{value:new THREE.Matrix4()},
-    uFeatherShadowTexel:{value:new THREE.Vector2()},uFeatherShadowStrength:{value:strength},uFeatherShadowReady:{value:0}};
+    uFeatherShadowTexel:{value:new THREE.Vector2()},uFeatherShadowStrength:{value:THREE.MathUtils.clamp(strength,0,1)},uFeatherShadowReady:{value:0},
+    uFeatherShadowDepthRange:{value:1},uFeatherShadowContactDistance:{value:1},
+    uFeatherShadowFocus:{value:new THREE.Vector4(0,0,0,0)},uFeatherShadowSoftness:{value:1.25},
+    uFeatherShadowLightDirection:{value:new THREE.Vector3(0,0,1)},
+    uFeatherShadowLightPosition:{value:new THREE.Vector3()},uFeatherShadowProjection:{value:new THREE.Vector3(0,1,0)},uFeatherShadowWorldBias:{value:.00004}};
 }
 
 export function receiveFeatherShadows(material, uniforms) {
@@ -11,12 +15,14 @@ export function receiveFeatherShadows(material, uniforms) {
     compile(shader, renderer);Object.assign(shader.uniforms, uniforms);
     shader.vertexShader = `uniform mat4 uFeatherShadowMatrix;
       varying vec4 vFeatherShadowCoord;
+      varying vec3 vFeatherShadowWorld;
       ${shader.vertexShader}`.replace('#include <project_vertex>', `#include <project_vertex>
         vec4 featherShadowWorld = vec4(transformed, 1.0);
         #ifdef USE_INSTANCING
           featherShadowWorld = instanceMatrix * featherShadowWorld;
         #endif
-        vFeatherShadowCoord = uFeatherShadowMatrix * modelMatrix * featherShadowWorld;
+        vFeatherShadowWorld=(modelMatrix*featherShadowWorld).xyz;
+        vFeatherShadowCoord = uFeatherShadowMatrix * vec4(vFeatherShadowWorld,1.0);
       `);
     shader.fragmentShader = shader.fragmentShader.replace('#include <packing>','');
     shader.fragmentShader = `#include <packing>
@@ -24,7 +30,21 @@ export function receiveFeatherShadows(material, uniforms) {
       uniform vec2 uFeatherShadowTexel;
       uniform float uFeatherShadowStrength;
       uniform float uFeatherShadowReady;
+      uniform float uFeatherShadowDepthRange;
+      uniform float uFeatherShadowContactDistance;
+      uniform vec4 uFeatherShadowFocus;
+      uniform float uFeatherShadowSoftness;
+      uniform vec3 uFeatherShadowLightDirection;
+      uniform vec3 uFeatherShadowLightPosition;
+      uniform vec3 uFeatherShadowProjection;
+      uniform float uFeatherShadowWorldBias;
       varying vec4 vFeatherShadowCoord;
+      varying vec3 vFeatherShadowWorld;
+      float featherLinearDepth(float depth) {
+        if(uFeatherShadowProjection.z<.5)return depth*uFeatherShadowDepthRange;
+        float near=uFeatherShadowProjection.x,far=uFeatherShadowProjection.y;
+        return near*far/(far-clamp(depth,0.0,1.0)*(far-near));
+      }
       float featherShadowMask() {
         vec3 p = vFeatherShadowCoord.xyz / vFeatherShadowCoord.w;
         vec3 dx = dFdx(p), dy = dFdy(p);
@@ -33,61 +53,109 @@ export function receiveFeatherShadows(material, uniforms) {
         // Receiver-plane depth correction keeps the soft filter from treating
         // neighbouring texels of the same sloping vane as an occluder.
         float det = dx.x * dy.y - dx.y * dy.x;
-        vec2 slope = abs(det) > 0.0000000001 ? vec2(dy.y * dx.z - dx.y * dy.z, dx.x * dy.z - dy.x * dx.z) / det : vec2(0.0);
+        vec2 slope = abs(det) > 0.0000000000000001 ? vec2(dy.y * dx.z - dx.y * dy.z, dx.x * dy.z - dy.x * dx.z) / det : vec2(0.0);
+        vec3 receiverNormal=cross(dFdx(vFeatherShadowWorld),dFdy(vFeatherShadowWorld));
+        receiverNormal*=inversesqrt(max(dot(receiverNormal,receiverNormal),1e-30));
+        vec3 contactLight=uFeatherShadowProjection.z>.5?normalize(uFeatherShadowLightPosition-vFeatherShadowWorld):uFeatherShadowLightDirection;
+        float receiverCosine=max(.15,abs(dot(receiverNormal,contactLight)));
+        float radialScale=uFeatherShadowProjection.z>.5?distance(vFeatherShadowWorld,uFeatherShadowLightPosition)/max(.0001,featherLinearDepth(p.z)):1.0;
         float visibility = 0.0;
         for (int y = -1; y <= 1; y++) for (int x = -1; x <= 1; x++) {
-          vec2 offset = vec2(float(x),float(y)) * uFeatherShadowTexel * 1.25;
+          vec2 offset = vec2(float(x),float(y)) * uFeatherShadowTexel * uFeatherShadowSoftness;
           float depth = unpackRGBAToDepth(texture2D(uFeatherShadowMap, p.xy + offset));
-          visibility += step(p.z + dot(slope,offset) - 0.00008, depth);
+          float receiverDepth = p.z + dot(slope,offset);
+          float separation=max(0.0,featherLinearDepth(receiverDepth)-featherLinearDepth(depth))*radialScale*receiverCosine;
+          // This map contains feathers, so it supplies local contact shading.
+          // Distant feathers must not paint shadows through intervening walls.
+          float contact = 1.0 - smoothstep(uFeatherShadowContactDistance * 0.25, uFeatherShadowContactDistance, separation);
+          float lit=uFeatherShadowProjection.z>.5?1.0-step(uFeatherShadowWorldBias,separation):step(receiverDepth-0.00008,depth);
+          visibility += mix(1.0,lit,contact);
         }
-        return 1.0 - uFeatherShadowStrength * (1.0 - visibility / 9.0);
+        float region=1.0;
+        if(uFeatherShadowFocus.w>0.0)region=1.0-smoothstep(uFeatherShadowFocus.w*.65,uFeatherShadowFocus.w,distance(vFeatherShadowWorld,uFeatherShadowFocus.xyz));
+        float occlusion=max(0.0,1.0-visibility/9.0);
+        // Thin barbs cover fractions of a shadow texel. Keep their filtered
+        // contact shadows readable in FPV without darkening the ambient floor.
+        if(uFeatherShadowFocus.w>0.0)occlusion=sqrt(occlusion);
+        return 1.0 - clamp(uFeatherShadowStrength, 0.0, 1.0) * region * occlusion;
       }
-      ${shader.fragmentShader}`.replace('#include <opaque_fragment>', 'outgoingLight *= featherShadowMask();\n#include <opaque_fragment>');
+      ${shader.fragmentShader}`;
+    if(shader.fragmentShader.includes('#include <lights_fragment_end>')){
+      // Nearby feathers also occlude part of the sky and room illumination.
+      // Keep that contact shading visible in shadowed corridors, while leaving
+      // enough indirect light to avoid the previous solid black silhouettes.
+      shader.fragmentShader=shader.fragmentShader.replace('#include <lights_fragment_end>','#include <lights_fragment_end>\nfloat featherContact=featherShadowMask();\nreflectedLight.directDiffuse*=featherContact;\nreflectedLight.directSpecular*=featherContact;\nreflectedLight.indirectDiffuse*=mix(1.0,featherContact,.75);\nreflectedLight.indirectSpecular*=mix(1.0,featherContact,.25);');
+    }else shader.fragmentShader=shader.fragmentShader.replace('#include <opaque_fragment>','outgoingLight *= featherShadowMask();\n#include <opaque_fragment>');
   };
-  material.customProgramCacheKey = () => key() + '/feather-shadow-v1';
+  material.customProgramCacheKey = () => key() + '/feather-shadow-v7';
 }
 
 export function createFeatherShadowRenderer({renderer, feathers, light}) {
   const uniforms = feathers.shadowUniforms;
-  const scene = new THREE.Scene(), camera = new THREE.OrthographicCamera();
+  const scene = new THREE.Scene(), worldCamera = new THREE.OrthographicCamera(),travelCamera=new THREE.PerspectiveCamera(150,1,.001,1.5);
   const proxies = new WeakMap(), bounds = new THREE.Box3(), point = new THREE.Vector3(), targetPoint = new THREE.Vector3();
   const clearColor = new THREE.Color(), viewport = new THREE.Vector4(), scissor = new THREE.Vector4();
   const matrixState = new THREE.Matrix4(), lightState = new THREE.Matrix4(), targetState = new THREE.Matrix4();
+  const focus=new THREE.Vector4(),focusState=new THREE.Vector4(),focusPoint=new THREE.Vector3(),viewDirection=new THREE.Vector3();
+  const viewUp=new THREE.Vector3();
   const bias = new THREE.Matrix4().set(.5,0,0,.5, 0,.5,0,.5, 0,0,.5,.5, 0,0,0,1);
   let target = null, lastVersion = -1, renders = 0;
   return {
-    update(root) {
+    update(root,viewCamera) {
       const group = feathers.group;
       if (!group.parent || !group.visible || !feathers.shadowEnabled) {uniforms.uFeatherShadowReady.value=0;return;}
       root.updateMatrixWorld(true);light.updateWorldMatrix(true,false);light.target.updateWorldMatrix(true,false);
-      if (lastVersion === feathers.shadowVersion && uniforms.uFeatherShadowReady.value && matrixState.equals(group.matrixWorld) && lightState.equals(light.matrixWorld) && targetState.equals(light.target.matrixWorld)) return;
-      const casters = group.children.filter(batch => batch.isMesh && batch.visible && batch.customDepthMaterial);
+      focus.set(0,0,0,0);
+      if(feathers.focusShadows&&viewCamera){
+        viewCamera.updateWorldMatrix(true,false);viewCamera.getWorldDirection(viewDirection);
+        const radius=feathers.shadowViewRadius*group.matrixWorld.getMaxScaleOnAxis();
+        focusPoint.setFromMatrixPosition(viewCamera.matrixWorld).addScaledVector(viewDirection,radius*.5);
+        focus.set(focusPoint.x,focusPoint.y,focusPoint.z,radius);
+      }
+      if (lastVersion === feathers.shadowVersion && uniforms.uFeatherShadowReady.value && matrixState.equals(group.matrixWorld) && lightState.equals(light.matrixWorld) && targetState.equals(light.target.matrixWorld)&&focus.equals(focusState)) return;
+      uniforms.uFeatherShadowFocus.value.copy(focus);uniforms.uFeatherShadowSoftness.value=focus.w>0?2.5:1.25;
+      const casters = group.children.filter(batch => batch.visible && batch.customDepthMaterial && batch.geometry.instanceCount>0);
       if (!casters.length) {uniforms.uFeatherShadowReady.value=0;return;}
       if (!target) {
         const resolution = Math.min(2048,renderer.capabilities.maxTextureSize);
         target = new THREE.WebGLRenderTarget(resolution,resolution,{minFilter:THREE.NearestFilter,magFilter:THREE.NearestFilter,stencilBuffer:false});
         uniforms.uFeatherShadowMap.value=target.texture;uniforms.uFeatherShadowTexel.value.setScalar(1/resolution);
       }
-      camera.position.setFromMatrixPosition(light.matrixWorld);targetPoint.setFromMatrixPosition(light.target.matrixWorld);
-      camera.lookAt(targetPoint);camera.updateMatrixWorld(true);bounds.makeEmpty();
+      const camera=focus.w>0?travelCamera:worldCamera;
+      if(focus.w>0){
+        viewUp.setFromMatrixColumn(group.matrixWorld,1).normalize();
+        camera.position.setFromMatrixPosition(viewCamera.matrixWorld).addScaledVector(viewDirection,-.01).addScaledVector(viewUp,.025);
+        camera.up.copy(viewUp);camera.near=.001;camera.far=focus.w*2.5;camera.lookAt(focusPoint);
+      }else{
+        camera.position.setFromMatrixPosition(light.matrixWorld);targetPoint.setFromMatrixPosition(light.target.matrixWorld);camera.lookAt(targetPoint);
+      }
+      camera.updateMatrixWorld(true);bounds.makeEmpty();
+      uniforms.uFeatherShadowLightDirection.value.setFromMatrixColumn(camera.matrixWorld,2).normalize();
+      uniforms.uFeatherShadowLightPosition.value.copy(camera.position);
       scene.clear();
       for (const batch of casters) {
         const anchors=batch.geometry.attributes.featherPosition;
-        for(let i=0;i<anchors.count;i++)bounds.expandByPoint(point.fromBufferAttribute(anchors,i).applyMatrix4(batch.matrixWorld).applyMatrix4(camera.matrixWorldInverse));
-        if(!proxies.has(batch)){const proxy=new THREE.Mesh(batch.geometry,batch.customDepthMaterial);proxy.matrixAutoUpdate=false;proxy.frustumCulled=false;proxies.set(batch,proxy);}
+        for(let i=0;i<batch.geometry.instanceCount;i++)bounds.expandByPoint(point.fromBufferAttribute(anchors,i).applyMatrix4(batch.matrixWorld).applyMatrix4(camera.matrixWorldInverse));
+        if(!proxies.has(batch)){const proxy=batch.isMesh?new THREE.Mesh(batch.geometry,batch.customDepthMaterial):new THREE.LineSegments(batch.geometry,batch.customDepthMaterial);proxy.matrixAutoUpdate=false;proxy.frustumCulled=false;proxies.set(batch,proxy);}
         const proxy=proxies.get(batch);proxy.matrix.copy(batch.matrixWorld);scene.add(proxy);
       }
       const padding=feathers.shadowPadding;
-      camera.left=bounds.min.x-padding;camera.right=bounds.max.x+padding;
-      camera.bottom=bounds.min.y-padding;camera.top=bounds.max.y+padding;
-      camera.near=Math.max(.01,-bounds.max.z-padding);camera.far=Math.max(camera.near+.1,-bounds.min.z+padding);camera.updateProjectionMatrix();
+      if(!focus.w){
+        camera.left=bounds.min.x-padding;camera.right=bounds.max.x+padding;
+        camera.bottom=bounds.min.y-padding;camera.top=bounds.max.y+padding;
+        camera.near=Math.max(.01,-bounds.max.z-padding);camera.far=Math.max(camera.near+.1,-bounds.min.z+padding);
+      }
+      camera.updateProjectionMatrix();
+      uniforms.uFeatherShadowDepthRange.value=camera.far-camera.near;
+      uniforms.uFeatherShadowProjection.value.set(camera.near,camera.far,focus.w>0?1:0);
+      uniforms.uFeatherShadowContactDistance.value=feathers.shadowContactDistance??padding;
       uniforms.uFeatherShadowMatrix.value.copy(bias).multiply(camera.projectionMatrix).multiply(camera.matrixWorldInverse);
       const previousTarget=renderer.getRenderTarget(),previousAlpha=renderer.getClearAlpha(),previousAutoClear=renderer.autoClear,previousScissor=renderer.getScissorTest();
       renderer.getClearColor(clearColor);renderer.getViewport(viewport);renderer.getScissor(scissor);
       try {
         renderer.setRenderTarget(target);renderer.setScissorTest(false);renderer.autoClear=true;renderer.setClearColor(0xffffff,1);
         renderer.render(scene,camera);uniforms.uFeatherShadowReady.value=1;renders++;
-        lastVersion=feathers.shadowVersion;matrixState.copy(group.matrixWorld);lightState.copy(light.matrixWorld);targetState.copy(light.target.matrixWorld);
+        lastVersion=feathers.shadowVersion;matrixState.copy(group.matrixWorld);lightState.copy(light.matrixWorld);targetState.copy(light.target.matrixWorld);focusState.copy(focus);
       } finally {
         renderer.autoClear=previousAutoClear;renderer.setClearColor(clearColor,previousAlpha);
         renderer.setViewport(viewport);renderer.setScissor(scissor);renderer.setScissorTest(previousScissor);renderer.setRenderTarget(previousTarget);

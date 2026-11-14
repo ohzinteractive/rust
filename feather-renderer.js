@@ -134,7 +134,8 @@ export function createFeatherRenderer({renderer, feathers, shadowLight}) {
     get mode() { return supported ? 'weighted' : 'alpha-hash'; },
     get shadowRenders(){return shadows?.renders??0;},
     render(scene, camera) {
-      shadows?.update(scene);
+      feathers.updateView?.(camera);
+      shadows?.update(scene,camera);
       const group = feathers.group;
       if (!supported || !group.parent || !group.visible || !feathers.translucent) {
         renderer.render(scene, camera); return;

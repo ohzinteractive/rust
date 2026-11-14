@@ -78,7 +78,7 @@ export function createSurfaceSampler(meshes, parent) {
     return {triangle, weights, position};
   }
   return {
-    area,
+    area,triangles,
     sample(count, seed = 7319) {
       if (!triangles.length || count <= 0) return [];
       const random = seededRandom(seed), samples = [];
