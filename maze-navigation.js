@@ -7,7 +7,7 @@ import {createMazeRoom} from './maze-room.js';
 export function createMazeWalker(){
   const {size,unit,hinge,height}=mazeDimensions,radius=.017;
   const polygons=getMazeLayout().hulls.map(hull=>hull.vertices.slice(0,4));
-  const {courtyard,walls,goalLabel}=createMazePlan(),position=new THREE.Vector3();
+  const {courtyard,walls,goal,goalLabel}=createMazePlan(),position=new THREE.Vector3();
   const entryColumn=Math.floor(size/2),entryRow=size-2;
   const [dx,dz]=[[0,-1],[1,0],[-1,0]].find(([x,z])=>!walls[entryRow+z][entryColumn+x]);
   const heading=-Math.atan2(dx,-dz);
@@ -33,6 +33,13 @@ export function createMazeWalker(){
   function reset(){position.copy(mazePoint(size/2,size-1.5,-height/2+.21));}
   reset();
   return {position,canStand,reset,heading,goalLabel,
+    visitCourtyard(){
+      for(const offset of [2,1,0,-1,-2]){
+        const spot=mazePoint(goal.x+.5,goal.z+.5+offset,.015);
+        if(canStand(spot.x,spot.z)){position.copy(spot);return true;}
+      }
+      return false;
+    },
     move(dx,dz,dy=0){
       if(!dx&&!dz&&!dy)return false;
       const steps=Math.max(1,Math.ceil(Math.hypot(dx,dz)/.005)),startX=position.x,startZ=position.z,startY=position.y;
@@ -142,6 +149,12 @@ export function createMazeNavigation({camera,controls,specimen,canvas,stage,butt
   }
   button.addEventListener('click',enter);
   panel.querySelector('[data-fpv-exit]').addEventListener('click',exit);
+  panel.querySelector('[data-fpv-courtyard]').addEventListener('click',()=>{
+    if(!active)return;
+    clearInput();if(!walker.visitCourtyard())return;
+    yaw=walker.position.z>=room.interior.ritual.center.z?0:Math.PI;pitch=.3;
+    syncCamera();room.interior.advance(1/60,camera);canvas.focus({preventScroll:true});
+  });
   panel.querySelector('[data-fpv-restart]').addEventListener('click',()=>{clearInput();walker.reset();yaw=walker.heading;pitch=0;syncCamera();canvas.focus({preventScroll:true});});
   return {get active(){return active;},get walker(){return walker;},get room(){return room;},enter,exit,
     refreshMap(){exit();clearInput();room.dispose();walker=createMazeWalker();room=createMazeRoom({specimen,scene:specimen.parent,canStand:walker.canStand});},

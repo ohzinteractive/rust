@@ -26,3 +26,13 @@ test('map switching restores deterministic layouts, refreshes colliders and keep
   assert.throws(()=>setMazeMap('missing'),RangeError);
   setMazeMap('garden');
 });
+
+test('the courtyard shortcut reaches a safe ritual viewpoint in either map and restart restores the entrance',()=>{
+  for(const id of ['garden','observatory']){
+    setMazeMap(id);const walker=createMazeWalker(),entrance=walker.position.clone();
+    assert(walker.visitCourtyard());assert(walker.inCourtyard);assert(walker.canStand(walker.position.x,walker.position.z));
+    assert(walker.position.distanceTo(entrance)>.5);
+    walker.reset();assert(walker.position.equals(entrance));assert(!walker.inCourtyard);
+  }
+  setMazeMap('garden');
+});

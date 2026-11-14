@@ -5,7 +5,7 @@ import {spawn} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import assert from 'node:assert/strict';
 import {checkMazeFeathers} from './maze-feathers-browser.mjs';
-import {checkMazeMaps} from './maze-maps-browser.mjs';
+import {checkMazeMaps,checkCourtyardShortcut} from './maze-maps-browser.mjs';
 const root=fileURLToPath(new URL('../',import.meta.url)).replace(/\/$/,'');
 const server=createServer(async(req,res)=>{try {const path=decodeURIComponent(new URL(req.url,'http://localhost').pathname); let data=await readFile(root+(path==='/'?'/index.html':path));if(path==='/app.js')data=data.toString()+'\nwindow.peelDebug={models,state,scene,feathers,core,surface,renderer,camera,controls,featherRenderer,mazeNavigation,get idle(){return !renderDirty}};';res.setHeader('Content-Type',path.endsWith('.js')?'text/javascript':path.endsWith('.css')?'text/css':path.endsWith('.woff2')?'font/woff2':'text/html');res.end(data);}catch{res.writeHead(404);res.end();}});
 await new Promise(r=>server.listen(8765,'127.0.0.1',r));
@@ -25,7 +25,13 @@ try{
  let loaded=false;for(let i=0;i<100;i++){await delay(200);loaded=await run("document.readyState==='complete'&&!document.getElementById('loading')");if(loaded||errors.length)break;}
  assert.equal(errors.length,0,JSON.stringify(errors));assert(loaded,'Scene did not finish loading');
  assert(await run("document.getElementById('webgl-error').hidden"));
- if(process.argv.includes('--maps-only')){
+ if(process.argv.includes('--ritual-only')){
+   await checkCourtyardShortcut({run,assert});
+   await call('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
+   await checkCourtyardShortcut({run,assert});
+   assert.equal(errors.length,0,JSON.stringify(errors));
+   console.log('PASS: courtyard shortcut, arrival reveal, restart and exit on both maps, desktop and mobile.');
+ }else if(process.argv.includes('--maps-only')){
    await checkMazeMaps({run,call,assert});
    await call('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
    await checkMazeMaps({run,call,assert});

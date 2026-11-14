@@ -17,3 +17,19 @@ export async function checkMazeMaps({run,call,assert}){
   assert(await run("peelDebug.scene.getObjectsByProperty('name','Maze interior').length===1&&peelDebug.scene.getObjectsByProperty('name','Carried lantern').length===1"),'Repeated switching does not accumulate rooms or lights');
   await run("document.querySelector('[data-metal=iron]').click();document.querySelector('[data-shape=cube]').click()");
 }
+
+
+export async function checkCourtyardShortcut({run,assert}){
+  await run("document.querySelector('[data-shape=maze]').click()");
+  for(const id of ['garden','observatory']){
+    await run("document.getElementById('maze-enter').click();document.querySelector('[data-fpv-courtyard]').click()");
+    assert(await run(`peelDebug.state.mazeMap==='${id}'&&peelDebug.mazeNavigation.active&&peelDebug.mazeNavigation.walker.inCourtyard`),'The shortcut reaches the destination on '+id);
+    assert(await run("document.querySelector('#maze-fpv [role=status]').textContent==='Destination reached'&&peelDebug.mazeNavigation.room.interior.ritual.stats.total>0"),'The ritual is visible immediately after clicking the shortcut');
+    await run('for(let i=0;i<600;i++)peelDebug.mazeNavigation.room.interior.advance(1/60,peelDebug.camera);peelDebug.featherRenderer.render(peelDebug.scene,peelDebug.camera)');
+    assert(await run('peelDebug.mazeNavigation.room.interior.ritual.stats.total===36'),'The full ritual awakens from the shortcut');
+    await run("document.querySelector('[data-fpv-restart]').click()");
+    assert(await run('!peelDebug.mazeNavigation.walker.inCourtyard'),'Back to entrance restores exploration');
+    await run("document.querySelector('[data-fpv-courtyard]').click();document.querySelector('[data-fpv-exit]').click();document.querySelector('[data-shape=maze]').click()");
+  }
+  await run("document.querySelector('[data-shape=cube]').click()");
+}
