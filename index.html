@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8">
-  
+
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#141613">
   <meta name="description" content="An interactive study of rust. Explore noise-driven oxidation, mineral color, and peeling layers on a Three.js cube.">
@@ -52,7 +52,7 @@
       <div class="canvas-wrap" id="canvas-wrap">
         <canvas id="scene" aria-label="Yellow painted cube gradually rusting and shedding flakes onto the ground. Drag to orbit, scroll to zoom, or use the arrow keys to rotate." tabindex="0"></canvas>
       </div>
-      
+
       <div class="loading" id="loading" role="status"><div class="loader-ring" aria-hidden="true"></div><span>Preparing the specimen…</span></div>
       <div class="webgl-error" id="webgl-error" hidden=""><h2>This specimen needs WebGL 2.</h2><p>Try a current browser with hardware acceleration enabled.</p><button id="retry">Try again</button></div>
       <div class="specimen-label"><span class="label-line"></span><span><span id="metal-symbol">Fe</span><span class="specimen-sub"><span id="metal-name">IRON</span> / SPECIMEN <span id="specimen-number">073</span></span></span></div>
@@ -103,6 +103,35 @@
         <div id="cloth-rope-list" aria-label="Cloth ropes"></div>
         </section>
       </div>
+      <div id="oasis-controls" class="exposure-dock feather-controls" hidden>
+        <div class="feather-summary"><span>OASIS</span><span id="oasis-count" role="status">9 palms + 7 young</span><button id="oasis-settings-toggle" type="button" aria-expanded="false" aria-controls="oasis-options"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 17h16M8 4v6M16 14v6"/></svg>Settings</button></div>
+        <section id="oasis-options" class="feather-options" aria-label="Oasis settings" hidden>
+          <div class="feather-menu-heading"><h2>Oasis settings</h2><button id="oasis-settings-close" type="button" aria-label="Close oasis settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6"/></svg></button></div>
+          <div class="feather-actions"><button id="palm-grow" type="button">Grow palm tree</button><button id="palm-exit" type="button">Feather coat</button></div>
+          <p class="feather-flight-help">Pinnate fronds grown from the feather generator, with a curved, textured trunk.</p>
+          <fieldset class="feather-style"><legend>Environment</legend><label><input type="radio" name="palm-environment" value="desert" checked><span>Desert daylight</span></label><label><input type="radio" name="palm-environment" value="studio"><span>Dark studio</span></label></fieldset>
+          <label class="palm-oasis-toggle"><input id="palm-oasis" type="checkbox" checked> Oasis &amp; palm grove</label>
+          <details id="palm-camera-light" class="feather-surface-settings" open>
+            <summary>Camera &amp; sun</summary>
+            <div class="feather-setting"><div><label for="palm-camera-fov">Camera FOV</label><output id="palm-camera-fov-value" for="palm-camera-fov">48°</output></div><input id="palm-camera-fov" type="range" min="20" max="110" step="1" value="48"><p>Vertical field of view. Your choice stays fixed when resizing or resetting the view.</p></div>
+            <fieldset id="palm-sun-settings" aria-label="Sun position">
+              <div class="feather-setting"><div><label for="palm-sun-elevation">Sun height</label><output id="palm-sun-elevation-value" for="palm-sun-elevation">10°</output></div><input id="palm-sun-elevation" type="range" min="1" max="85" step="1" value="10"></div>
+              <div class="feather-setting"><div><label for="palm-sun-azimuth">Sun direction</label><output id="palm-sun-azimuth-value" for="palm-sun-azimuth">322°</output></div><input id="palm-sun-azimuth" type="range" min="0" max="360" step="1" value="322"><p>Moves the sky's sun, cast shadows, and water highlights together.</p></div>
+            </fieldset>
+            <div class="feather-actions"><button id="palm-camera-auto" type="button">Auto FOV</button><button id="palm-sun-reset" type="button">Reset sun</button></div>
+          </details>
+          <p class="feather-flight-help">Jeddah Tower stands 1,000 m tall in the desert, about 2.8 km beyond the palm.</p>
+          <div class="feather-setting"><div><label for="palm-mirage">Mirage</label><output id="palm-mirage-value" for="palm-mirage">70%</output></div><input id="palm-mirage" type="range" min="0" max="100" value="70"><p>Heat shimmer and a faint reflection around the distant tower.</p></div>
+          <div class="feather-setting"><div><label for="palm-fronds">Fronds</label><output id="palm-fronds-value" for="palm-fronds">41</output></div><input id="palm-fronds" type="range" min="12" max="48" value="41"></div>
+          <div class="feather-setting"><div><label for="palm-density">Leaflet density</label><output id="palm-density-value" for="palm-density">95%</output></div><input id="palm-density" type="range" min="25" max="100" value="95"></div>
+          <div class="feather-setting"><div><label for="palm-dryFraction">Dry fronds</label><output id="palm-dryFraction-value" for="palm-dryFraction">38%</output></div><input id="palm-dryFraction" type="range" min="0" max="60" value="38"></div>
+          <div class="feather-setting"><div><label for="palm-length">Frond length</label><output id="palm-length-value" for="palm-length">1.66</output></div><input id="palm-length" type="range" min="80" max="220" value="166"></div>
+          <div class="feather-setting"><div><label for="palm-droop">Droop</label><output id="palm-droop-value" for="palm-droop">139%</output></div><input id="palm-droop" type="range" min="0" max="180" value="139"></div>
+          <div class="feather-setting"><div><label for="palm-curve">Trunk bend</label><output id="palm-curve-value" for="palm-curve">40%</output></div><input id="palm-curve" type="range" min="0" max="100" value="40"></div>
+          <div class="feather-setting"><div><label for="palm-wind">Wind</label><output id="palm-wind-value" for="palm-wind">48%</output></div><input id="palm-wind" type="range" min="0" max="100" value="48"></div>
+          <div class="feather-actions"><button id="palm-regrow" type="button">New variation</button></div>
+        </section>
+      </div>
       <div id="feather-controls" class="exposure-dock feather-controls" hidden>
         <div class="feather-summary"><span>FEATHERS</span><span id="feather-count" role="status">0 feathers</span><button id="feather-settings-toggle" type="button" aria-expanded="false" aria-controls="feather-options"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 17h16M8 4v6M16 14v6"/></svg>Settings</button></div>
         <section id="feather-options" class="feather-options" aria-label="Feather settings" hidden>
@@ -149,6 +178,7 @@
         <button class="material-swatch" data-metal="bronze" aria-pressed="false" aria-label="Bronze"><span class="metal-sample bronze" aria-hidden="true"></span><span>Bronze</span></button>
         <button class="material-swatch" data-metal="aluminum" aria-pressed="false" aria-label="Aluminum"><span class="metal-sample aluminum" aria-hidden="true"></span><span>Aluminum</span></button>
         <button id="feather-material" type="button" class="material-swatch feather-swatch" aria-pressed="false" aria-label="Feathers" aria-expanded="false" aria-controls="feather-options"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 21 17 5M8 17C0 8 12 0 21 3c1 8-3 17-13 14ZM8 17l1-7m3 2 6-1m-3-3 1-4"/></svg><span>Feathers</span></button>
+        <button id="oasis-material" type="button" class="material-swatch oasis-swatch" aria-pressed="false" aria-label="Oasis" aria-expanded="false" aria-controls="oasis-options" title="Desert oasis with palm trees"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 21c3-4 4-9 3-14M8 21h9M13 7C9 2 5 4 3 8c4-2 7-2 10-1ZM13 7C13 2 18 2 21 5c-4-1-6 0-8 2ZM13 7c5-2 8 1 9 5-3-3-6-4-9-5ZM13 7C9 6 7 9 7 13c2-3 4-5 6-6Z"/></svg><span>Oasis</span></button>
         <button id="cloth-material" type="button" class="material-swatch cloth-swatch" aria-pressed="false" aria-label="Cloth" title="Drape ivory cloth over this shape"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3c4 3 10-2 14 1l2 16c-5-3-12 3-18 0L5 3Z"/><path d="M9 5 7 19M14 5l1 14M18 7l1 10"/></svg><span>Cloth</span></button>
         <button id="paint-toggle" class="material-swatch paint-bucket selected" aria-label="Paint options" aria-expanded="false" aria-controls="paint-options" title="Choose paint colour">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 10 7-7 9 9-7 7a2 2 0 0 1-3 0l-6-6a2 2 0 0 1 0-3Z"/><path d="M6 8 4 6a2 2 0 0 1 3-3l5 5M4 12h16"/><path d="M20 16s-2 2.4-2 3.5a2 2 0 0 0 4 0C22 18.4 20 16 20 16Z" fill="currentColor" stroke="none"/></svg>

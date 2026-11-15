@@ -7,8 +7,9 @@ import assert from 'node:assert/strict';
 import {checkMazeFeathers} from './maze-feathers-browser.mjs';
 import {checkCloth,checkClothRopes,checkDelayedWrapping,checkHorseClothContacts} from './cloth-browser.mjs';
 import {checkMazeMaps,checkCourtyardShortcut} from './maze-maps-browser.mjs';
+import {checkDesertSky} from './desert-sky-browser.mjs';
 const root=fileURLToPath(new URL('../',import.meta.url)).replace(/\/$/,'');
-const server=createServer(async(req,res)=>{try {const path=decodeURIComponent(new URL(req.url,'http://localhost').pathname); let data=await readFile(root+(path==='/'?'/index.html':path));if(path==='/app.js')data=data.toString()+'\nwindow.peelDebug={models,state,scene,cloth,feathers,core,surface,renderer,camera,controls,featherRenderer,mazeNavigation,get idle(){return !renderDirty}};';res.setHeader('Content-Type',path.endsWith('.js')?'text/javascript':path.endsWith('.css')?'text/css':path.endsWith('.woff2')?'font/woff2':'text/html');res.end(data);}catch{res.writeHead(404);res.end();}});
+const server=createServer(async(req,res)=>{try {const path=decodeURIComponent(new URL(req.url,'http://localhost').pathname); let data=await readFile(root+(path==='/'?'/index.html':path));if(path==='/app.js')data=data.toString()+'\nwindow.peelDebug={models,state,scene,cloth,palm,oasis,mirage,renderScene,feathers,core,surface,renderer,camera,controls,featherRenderer,mazeNavigation,get idle(){return !renderDirty}};';res.setHeader('Content-Type',path.endsWith('.js')?'text/javascript':path.endsWith('.css')?'text/css':path.endsWith('.woff2')?'font/woff2':'text/html');res.end(data);}catch{res.writeHead(404);res.end();}});
 await new Promise(r=>server.listen(8765,'127.0.0.1',r));
 const browser=spawn(process.env.BROWSER_PATH || '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser',['--headless','--no-first-run','--no-default-browser-check','--disable-background-networking','--use-angle=swiftshader','--enable-unsafe-swiftshader','--remote-debugging-port=9225','--user-data-dir=/private/tmp/oxide-qa-browser','about:blank'],{stdio:'ignore'});
 let ws;
@@ -26,7 +27,82 @@ try{
  let loaded=false;for(let i=0;i<100;i++){await delay(200);loaded=await run("document.readyState==='complete'&&!document.getElementById('loading')");if(loaded||errors.length)break;}
  assert.equal(errors.length,0,JSON.stringify(errors));assert(loaded,'Scene did not finish loading');
  assert(await run("document.getElementById('webgl-error').hidden"));
- if(process.argv.includes('--cloth-tip-only')){
+ if(process.argv.includes('--sky-only')){
+   await checkDesertSky({run,call,delay});
+   assert.equal(errors.length,0,JSON.stringify(errors));console.log('PASS: editable camera FOV, linked Sky and sun, shadows and water on desktop/mobile.');
+ }else if(process.argv.includes('--oasis-only')){
+   for(const mobile of [false,true]){
+     if(mobile)await call('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
+     await run('window.oasisStudio={background:peelDebug.scene.background,fog:peelDebug.scene.fog}');
+     await run("document.getElementById('oasis-material').click()");
+     assert(await run("peelDebug.oasis.group.visible&&peelDebug.oasis.grove.children.length===8&&peelDebug.oasis.understory.children.length===7&&peelDebug.oasis.stats.palms===16&&peelDebug.oasis.water.isReflector&&peelDebug.palm.group.visible&&document.getElementById('oasis-count').textContent.includes('7 young')"),'The oasis contains water, nine mature palms and seven young palms');
+     let ready=false;for(let i=0;i<75;i++){ready=await run("peelDebug.scene.getObjectByName('Jeddah building').children.length>0");if(ready)break;await delay(200);}assert(ready,'The distant tower remains part of the oasis scene');
+     await run("window.oasisTree=peelDebug.oasis.grove.children[0];document.getElementById('palm-oasis').click()");
+     assert(await run('!peelDebug.oasis.group.visible&&peelDebug.palm.group.visible&&peelDebug.mirage.enabled'),'Oasis toggle returns to the single-palm desert');
+     await run("document.getElementById('palm-oasis').click()");
+     assert(await run('peelDebug.oasis.group.visible&&peelDebug.oasis.grove.children[0]===oasisTree'),'The grove is reused when toggled back on');
+     await run("document.querySelector('[name=palm-environment][value=studio]').click()");
+     assert(await run('!peelDebug.oasis.group.visible&&!peelDebug.mirage.enabled&&peelDebug.scene.background===oasisStudio.background'),'The studio restores its original setting');
+     await run("document.querySelector('[name=palm-environment][value=desert]').click();document.getElementById('oasis-settings-close').click();peelDebug.camera.position.set(5,3,8);peelDebug.controls.update();document.getElementById('reset-view').click()");
+     assert(await run('Math.abs(peelDebug.camera.position.x-8)<.001&&Math.abs(peelDebug.camera.position.y-5)<.001&&Math.abs(peelDebug.camera.position.z-14)<.001&&Math.abs(peelDebug.controls.target.x+3.5)<.001'),'Reset frames the complete oasis');
+     assert(await run("peelDebug.scene.getObjectByName('Distant desert dunes').visible&&peelDebug.oasis.groundcover.rocks.count===28&&peelDebug.oasis.groundcover.grass.count===120"),'Horizon dunes and sparse local ground details are present');
+     assert(await run("(async()=>{const THREE=await import('/vendor/three.module.js');peelDebug.camera.updateMatrixWorld();return peelDebug.scene.getObjectByName('Jeddah building').getWorldPosition(new THREE.Vector3()).project(peelDebug.camera).x<-.1;})()"),'The tower sits off-center to the left of the oasis');
+     const result=await run("import('/tests/desert-oasis-gpu.js').then(module=>module.checkDesertOasis(peelDebug))");console.log('Oasis pixels',JSON.stringify(result));
+     assert(result.poolColor[1]>result.poolColor[0]+15&&result.poolColor[2]>result.poolColor[0]+5&&result.waterPixels>1000,'The pool renders clear green-turquoise water against the sand');
+     assert(result.shallowColor[0]>result.poolColor[0]+10&&result.shallowColor[2]<result.shallowColor[0],'The broad shallows reveal a warmer sandy bed');
+     assert(result.strongShadowPixels>100,'Direct sunlight casts dark palm shadows on the oasis');
+     assert(result.reflectedPalms>50&&result.reflectionRenders>0&&result.ripplePixels>50,'Water reflects the palm grove and its ripples alter rendered pixels');
+     await run("document.getElementById('toast').classList.remove('show');peelDebug.renderScene()");
+     const shot=await call('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});await writeFile(`/private/tmp/oxide-oasis${mobile?'-mobile':''}.png`,Buffer.from(shot.result.data,'base64'));
+     await run("(()=>{document.getElementById('oasis-settings-toggle').click();const density=document.getElementById('palm-density');density.value=Number(density.value)===60?65:60;density.dispatchEvent(new Event('input'));})()");
+     assert(await run('peelDebug.oasis.grove.children[0]!==oasisTree&&peelDebug.oasis.stats.palms===16'),'Palm settings rebuild the mature and young grove');
+     await run("document.getElementById('palm-exit').click()");
+     assert(await run('!peelDebug.oasis.group.visible&&!peelDebug.palm.group.visible&&peelDebug.scene.background===oasisStudio.background'),'Leaving the palm scene hides the complete oasis');
+     await run("document.querySelector('[data-metal=iron]').click()");
+   }
+   assert.equal(errors.length,0,JSON.stringify(errors));console.log('PASS: turquoise oasis, reflected palm grove, ripples, camera framing and scene restoration on desktop/mobile.');
+ }else if(process.argv.includes('--palm-only')){
+   for(const mobile of [false,true]){
+     if(mobile)await call('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
+     await run("if(!peelDebug.state.rotate)document.getElementById('rotate').click()");
+     await run('window.palmStudio={background:peelDebug.scene.background,fog:peelDebug.scene.fog,environment:peelDebug.scene.environmentIntensity}');
+     await run("document.getElementById('oasis-material').click()");
+     await run("if(document.getElementById('palm-oasis').checked)document.getElementById('palm-oasis').click()");
+     assert(await run("peelDebug.state.palm&&peelDebug.palm.group.visible&&!peelDebug.core.parent.visible&&document.getElementById('feather-controls').hidden&&!document.getElementById('oasis-controls').hidden&&peelDebug.feathers.stats.count===0"),'Palm mode replaces the specimen and coat');
+     assert(await run("!peelDebug.controls.autoRotate&&!peelDebug.state.rotate&&document.getElementById('rotate').getAttribute('aria-pressed')==='false'"),'The desert starts with a still view of the distant tower');
+     assert(await run("peelDebug.scene.getObjectByName('Desert sky').isSky&&peelDebug.scene.getObjectByName('Desert sky').visible&&peelDebug.scene.children.some(child=>child.material?.name==='Pale desert sand')&&document.querySelector('.stage').classList.contains('desert-daylight')"),'Palm opens in desert daylight with sand and an atmospheric sky');
+     let towerLoaded=false;for(let i=0;i<75;i++){towerLoaded=await run("peelDebug.scene.getObjectByName('Jeddah building')?.children.length>0");if(towerLoaded)break;await delay(200);}
+     assert(towerLoaded,'The Jeddah sample loads alongside the palm');
+     assert(await run(`(async()=>{const THREE=await import('/vendor/three.module.js'),tower=peelDebug.scene.getObjectByName('Jeddah building'),bounds=new THREE.Box3().setFromObject(tower);window.palmTower=tower.children[0];let textured=0;tower.traverse(object=>{if(object.material?.map)textured++;});return tower.visible&&Math.abs((bounds.max.y-bounds.min.y)*5-1000)<.01&&Math.abs(bounds.min.y+1.75)<.001&&peelDebug.camera.far>=1000&&textured>=3;})()`),'The textured tower is grounded and 1,000 meters tall in the palm coordinate system');
+     await run("window.palmLeaf=peelDebug.palm.group.getObjectByName('Green palm frond');document.querySelector('[name=palm-environment][value=studio]').click()");
+     assert(await run("peelDebug.scene.background===palmStudio.background&&peelDebug.scene.fog===palmStudio.fog&&peelDebug.palm.group.getObjectByName('Green palm frond')===palmLeaf"),'Studio switch restores the scene without regrowing the palm');
+     assert(await run("!peelDebug.scene.getObjectByName('Jeddah building').visible"),'The landmark is scoped to the desert');
+     assert(await run('!peelDebug.mirage.enabled'),'Mirage is disabled in the studio');
+     await run("document.querySelector('[name=palm-environment][value=desert]').click()");
+     assert(await run("peelDebug.scene.getObjectByName('Jeddah building').visible&&peelDebug.scene.getObjectByName('Jeddah building').children[0]===palmTower"),'Returning to daylight reuses the building');
+     await run("peelDebug.camera.position.set(8,4,3);peelDebug.controls.target.set(0,0,0);peelDebug.controls.update();document.getElementById('reset-view').click()");
+     assert(await run('Math.abs(peelDebug.camera.position.x-8)<.001&&Math.abs(peelDebug.camera.position.z-8)<.001&&Math.abs(peelDebug.camera.position.y-.2)<.001&&Math.abs(peelDebug.controls.target.y-1.6)<.001'),'Reset view restores the desert composition');
+     await run("document.getElementById('oasis-settings-toggle').click()");
+     for(const [key,value] of [['fronds',24],['density',80],['dryFraction',40],['droop',130],['curve',85],['wind',45]]){
+       assert(await run(`(()=>{const input=document.getElementById('palm-${key}');input.scrollIntoView({block:'center'});const r=input.getBoundingClientRect();if(document.elementFromPoint(r.left+r.width/2,r.top+r.height/2)!==input)return false;input.value=${value};input.dispatchEvent(new Event('input'));return true;})()`),key+' control is reachable');
+     }
+     assert(await run('peelDebug.palm.stats.fronds===24&&peelDebug.palm.advance(1/60)'),'Palm settings and wind update the tree');
+     const mirageResult=await run("import('/tests/desert-mirage-gpu.js').then(module=>module.checkDesertMirage(peelDebug))");
+     console.log('Mirage pixels',JSON.stringify(mirageResult));
+     assert(mirageResult.changed>50&&mirageResult.animatedChanges>20,'The reflection and heat shimmer affect rendered pixels');
+     assert(mirageResult.foregroundChanges===0&&mirageResult.upperChanges===0&&mirageResult.animatedForegroundChanges===0,'Mirage leaves the nearby trunk and upper tower sharp');
+     await run("document.getElementById('oasis-settings-close').click();document.getElementById('toast').classList.remove('show');peelDebug.renderScene()");
+     const shot=await call('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});await writeFile(`/private/tmp/oxide-palm${mobile?'-mobile':''}.png`,Buffer.from(shot.result.data,'base64'));
+     await run("document.getElementById('oasis-settings-toggle').click();document.getElementById('palm-exit').click()");
+     assert(await run('!peelDebug.palm.group.visible&&peelDebug.core.parent.visible&&!peelDebug.state.palm'),'Feather coat restores the specimen');
+     assert(await run('peelDebug.scene.background===palmStudio.background&&peelDebug.scene.fog===palmStudio.fog&&peelDebug.scene.environmentIntensity===palmStudio.environment'),'Exiting palm mode restores the studio environment');
+     assert(await run("!peelDebug.scene.getObjectByName('Jeddah building').visible&&peelDebug.camera.far===80"),'Leaving the desert hides the tower and restores the studio camera range');
+     await run("document.getElementById('palm-grow').click();document.querySelector('[data-shape=sphere]').click()");
+     assert(await run('!peelDebug.state.palm&&!peelDebug.palm.group.visible&&peelDebug.core.parent.visible'),'Selecting a shape exits the palm');
+     await run("document.querySelector('[data-metal=iron]').click()");
+   }
+   assert.equal(errors.length,0,JSON.stringify(errors));console.log('PASS: feather-grown palm, editable crown and trunk, wind and mode switching on desktop/mobile.');
+ }else if(process.argv.includes('--cloth-tip-only')){
    for(const mobile of [false,true]){
      if(mobile)await call('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
      await run(`(async()=>{

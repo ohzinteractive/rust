@@ -50,7 +50,7 @@
 .paint-colour input{width:54px;height:34px;padding:2px;border:1px solid var(--line);border-radius:5px;background:none;cursor:pointer}
 
 /* Keep specimen controls together below the scene. */
-.specimen-dock{position:absolute;left:24px;right:24px;bottom:20px;z-index:4;display:grid;grid-template-columns:minmax(0,1fr) 280px;gap:12px;align-items:end}
+.specimen-dock{position:absolute;left:24px;right:24px;bottom:20px;z-index:4;display:grid;gap:12px;align-items:end}
 .specimen-dock .exposure-dock,.specimen-dock .material-picker{position:relative;inset:auto;transform:none;margin:0;max-width:none;min-width:0}
 .specimen-dock .exposure-dock{padding:6px 12px;border-radius:8px}
 .specimen-dock .exposure-top{gap:8px;margin-bottom:5px;flex-wrap:nowrap}
@@ -64,8 +64,8 @@
 .specimen-dock .age-labels{margin:3px -3px -2px}
 .specimen-dock .age-labels button{font-size:7px;padding:2px 3px}
 .specimen-dock .material-picker{padding:5px 6px;gap:4px;border-radius:8px;background:#20261fea}
-.specimen-dock .picker-row{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}
-.specimen-dock .shape-row{grid-template-columns:repeat(8,minmax(0,1fr));padding-top:4px}
+.specimen-dock .picker-row{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:4px}
+.specimen-dock .shape-row{padding-top:4px}
 .specimen-dock .material-swatch{min-width:0;padding:2px;gap:2px;font-size:7px;border-radius:5px}
 .specimen-dock .metal-sample,.specimen-dock .paint-bucket svg{width:20px;height:20px}
 .specimen-dock .shape-swatch svg{width:17px;height:17px}
@@ -75,7 +75,7 @@
 .stage-tools{bottom:116px}
 @media(min-width:901px) and (max-width:1150px){.specimen-dock .phase{display:none}}
 @media(max-width:640px){
-  .specimen-dock{left:18px;right:18px;bottom:16px;grid-template-columns:minmax(0,1fr);gap:8px}
+  .specimen-dock{left:18px;right:18px;bottom:16px;gap:8px}
   .specimen-dock .material-picker{grid-row:1}
   .specimen-dock .exposure-dock{grid-row:2}
   .specimen-dock .exposure-top{gap:6px}
@@ -118,10 +118,9 @@ html,body{width:100%;height:100%;overflow:hidden}
 #model-paint-option select{max-width:150px;padding:5px;border:1px solid var(--line);border-radius:5px;background:#20271c;color:var(--text);font:inherit}
 #model-paint-option[hidden],#basic-paint-option[hidden]{display:none}
 
-.specimen-dock .picker-row:not(.shape-row){grid-template-columns:repeat(7,minmax(0,1fr))}
-.specimen-dock .feather-swatch svg{width:20px;height:20px;color:#e9c28b}
+.specimen-dock .feather-swatch svg,.specimen-dock .oasis-swatch svg{width:20px;height:20px;color:#e9c28b}
 .specimen-dock .feather-controls{padding:10px 14px;z-index:5}
-.specimen-dock.feather-menu-open{z-index:13}
+.specimen-dock.feather-menu-open,.specimen-dock.oasis-menu-open{z-index:13}
 .feather-summary{display:flex;align-items:center;gap:14px;font:9px var(--mono);color:#adb6a0}
 .feather-summary>span:first-child{letter-spacing:1px}
 .feather-summary>button{margin-left:auto;display:flex;align-items:center;gap:6px;padding:6px 8px;border:1px solid #59604b;border-radius:5px;font:10px var(--sans);color:var(--text)}
@@ -162,7 +161,7 @@ html,body{width:100%;height:100%;overflow:hidden}
 #feather-wind-arrow{transform-origin:12px 12px}
 .feather-settings-reset{padding:7px 0;font:10px var(--sans);color:var(--muted);text-decoration:underline;text-underline-offset:3px}
 .feather-settings-reset:hover{color:var(--text)}
-#feather-count{color:#e9c28b;text-align:right}
+#feather-count,#oasis-count{color:#e9c28b;text-align:right}
 @media(max-width:640px){.specimen-dock .feather-controls{grid-row:2}.feather-options{max-height:calc(100dvh - 180px)}}
 
 .maze-enter{padding:0 12px;border:1px solid #8d8d6e;border-radius:5px;background:#272e23;font:10px var(--mono);color:#e3dfbd}
@@ -253,3 +252,12 @@ html,body{width:100%;height:100%;overflow:hidden}
 .cloth-tint{display:flex;align-items:center;justify-content:space-between;font:11px var(--sans);margin:16px 0}
 .cloth-tint input{width:48px;height:30px;padding:2px;border:1px solid var(--line);border-radius:4px;background:transparent;cursor:pointer}
 .cloth-plastic-settings button{width:100%;padding:9px;border:1px solid var(--line);border-radius:4px;background:transparent;color:var(--muted);font:10px var(--sans);cursor:pointer}
+
+.desert-daylight .project-credits,.desert-daylight .specimen-sub{color:#555b4c}
+.desert-daylight .project-credits a:hover,.desert-daylight .specimen-label{color:#394536}
+.desert-daylight .icon-button{color:#48513e;border-color:#777c6755;background:#e9e3cebb}
+.palm-oasis-toggle{display:flex;align-items:center;gap:8px;margin:0 0 16px;font-size:11px;cursor:pointer}
+.palm-oasis-toggle input{accent-color:#c4b68a}
+#palm-sun-settings{border:0;padding:0;margin:0;min-width:0}
+#palm-sun-settings:disabled,#palm-sun-reset:disabled{opacity:.45}
+#palm-sun-reset:disabled{cursor:default}
