@@ -77,7 +77,12 @@ export function createClothSurface({scene,floorY=-1.75,onSettle=()=>{}}){
     if(!mesh||!simulation)return;
     const target=mesh.geometry.attributes.position.array;
     for(let i=0;i<parameters.length;i+=2)evaluate(parameters[i],parameters[i+1],target,i/2*3);
-    refineDisplay();mesh.geometry.attributes.position.needsUpdate=true;mesh.geometry.computeVertexNormals();
+    refineDisplay();
+    if(collider.hasTipContacts){
+      const values=mesh.geometry.attributes.position.array;
+      for(let i=0;i<triangles.length;i+=3)collider.projectTipFace(values,triangles[i]*3,triangles[i+1]*3,triangles[i+2]*3,.08);
+    }
+    mesh.geometry.attributes.position.needsUpdate=true;mesh.geometry.computeVertexNormals();
     if(hem){
       const p=mesh.geometry.attributes.position,n=mesh.geometry.attributes.normal,out=hem.geometry.attributes.position.array,half=finish.preset.thickness*.5;
       let cursor=0;
@@ -99,10 +104,11 @@ export function createClothSurface({scene,floorY=-1.75,onSettle=()=>{}}){
     rebuild(meshes,{resolution=48,held=true,radial=false,fabric='linen',ropes:ropeSettings=[],ropePoints=96,autoSettle=true,settleTolerance=.003}={}){
       clear();finish.setFabric(fabric);if(!meshes.length)return;
       collider=createClothCollider(meshes);
-      // Broad roofs need a rectangular sheet. The radial mesh used around
-      // narrow, irregular imports bunches its center over a flat roof.
-      const imported=radial;radial=radial&&collider.topCoverage<.35;
-      const bounds=collider.bounds,size=bounds.getSize(new THREE.Vector3()),center=bounds.getCenter(new THREE.Vector3()),drop=bounds.max.y-floorY,overhang=drop*(imported?2.1:1.35);
+      const imported=radial,bounds=collider.bounds,size=bounds.getSize(new THREE.Vector3());
+      // Use a regular sheet for roofs and slender uprights. Collapsing a full
+      // radial row onto a small bottle tip makes its contact faces unstable.
+      radial=radial&&collider.topCoverage<.35&&Math.max(size.x,size.z)>size.y*.55;
+      const center=bounds.getCenter(new THREE.Vector3()),drop=bounds.max.y-floorY,overhang=drop*(imported?2.1:1.35);
       simulation=createClothSimulation({columns:resolution,rows:resolution,width:Math.max(3,size.x+overhang),depth:Math.max(3,size.z+overhang),centerX:center.x,centerZ:center.z,height:bounds.max.y+.28,floorY,collider,pin:collider.support,held,radial,autoSettle,settleTolerance,onSettle});
       simulation.setFabric(finish.preset);
       ropes=createClothRopes({scene,collider,positions:simulation.positions,columns:resolution,rows:resolution,clearance:simulation.contactPadding,points:ropePoints});ropes.setRopes(ropeSettings);simulation.setTies(ropes);

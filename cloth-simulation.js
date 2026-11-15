@@ -42,6 +42,7 @@ export function createClothSimulation({columns=48,rows=48,width=7,depth=7,center
   const constraints=new Float32Array(links);let accumulator=0,time=0,paused=false,breeze=.12;
   const probe=new Float64Array(3);let ties=null,tiesRevision=0;
   const beforeStep=positions.slice(),settleAnchor=positions.slice();
+  const tipContactOptions={history:beforeStep,previous,maxMove:spacing*.12};
   let sleeping=false,awakeSince=0,windowTime=0,quietWindows=0,windowMotion=0,windowSteps=0;
   let meanMovement=0,maxMovement=0,meanDrift=0,maxDrift=0;
   const settleScale=Math.max(1,height-floorY);
@@ -92,6 +93,10 @@ export function createClothSimulation({columns=48,rows=48,width=7,depth=7,center
     for(let z=0;z<rows;z++)for(let x=0;x<columns;x++){
       const a=(z*(columns+1)+x)*3,b=a+(columns+1)*3,c=b+3,d=a+3;
       faceContact(a,b,d);faceContact(b,c,d);
+      if(collider?.hasTipContacts){
+        collider.projectTipFace(positions,a,b,d,.065,tipContactOptions);
+        collider.projectTipFace(positions,b,c,d,.065,tipContactOptions);
+      }
     }
   }
   function contacts(){
@@ -112,7 +117,7 @@ export function createClothSimulation({columns=48,rows=48,width=7,depth=7,center
     }
   }
   function step(){
-    if(autoSettle)beforeStep.set(positions);
+    if(autoSettle||collider?.hasTipContacts)beforeStep.set(positions);
     time+=STEP;ties?.advance(STEP);
     for(let i=0;i<positions.length;i+=3){
       const x=positions[i],y=positions[i+1],z=positions[i+2];

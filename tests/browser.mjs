@@ -26,7 +26,35 @@ try{
  let loaded=false;for(let i=0;i<100;i++){await delay(200);loaded=await run("document.readyState==='complete'&&!document.getElementById('loading')");if(loaded||errors.length)break;}
  assert.equal(errors.length,0,JSON.stringify(errors));assert(loaded,'Scene did not finish loading');
  assert(await run("document.getElementById('webgl-error').hidden"));
- if(process.argv.includes('--ribbon-only')){
+ if(process.argv.includes('--cloth-tip-only')){
+   for(const mobile of [false,true]){
+     if(mobile)await call('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
+     await run(`(async()=>{
+       const THREE=await import('/vendor/three.module.js');document.getElementById('cloth-material').click();document.querySelector('[name=cloth-fabric][value=plastic]').click();
+       const profile=[[0,0],[.5,0],[.55,.08],[.55,1.6],[.2,2],[.17,3],[0,3]].map(([x,y])=>new THREE.Vector2(x,y-1.65));
+       const material=new THREE.MeshStandardMaterial({color:0x366db4,roughness:.4}),body=new THREE.Mesh(new THREE.LatheGeometry(profile,48),material),tip=new THREE.Mesh(new THREE.ConeGeometry(.005,.2,6),material);
+       tip.position.set(.037,1.45,.021);peelDebug.scene.add(body,tip);peelDebug.core.visible=false;window.tipFixture={body,tip,material};
+       peelDebug.cloth.rebuild([body,tip],{resolution:${mobile?36:48},radial:true,fabric:'plastic',ropes:[{id:1,style:'ribbon',height:.82,tightness:.8,width:.045,turns:3,span:.3}]});
+       peelDebug.controls.autoRotate=false;peelDebug.controls.enableDamping=false;peelDebug.controls.target.set(0,-.1,0);peelDebug.camera.position.set(3,1.6,7);peelDebug.controls.update();
+     })()`);
+     for(let i=0;i<12;i++)await run('for(let frame=0;frame<60;frame++)peelDebug.cloth.advance(1/60)');
+     const result=await run(`(async()=>{
+       const THREE=await import('/vendor/three.module.js'),cloth=peelDebug.cloth;
+       cloth.mesh.updateWorldMatrix(true,false);
+       const hits=new THREE.Raycaster(new THREE.Vector3(.037,4,.021),new THREE.Vector3(0,-1,0)).intersectObject(cloth.mesh,false);
+       const ribbon=cloth.ropes.group.getObjectByName('Cloth binding ribbon'),extent=new THREE.Box3().setFromBufferAttribute(ribbon.geometry.attributes.position).getSize(new THREE.Vector3());
+       return {covered:hits.length>0,height:hits[0]?.point.y,apex:cloth.collider.bounds.max.y,guarded:cloth.collider.hasTipContacts,finite:cloth.simulation.positions.every(Number.isFinite),ribbon:cloth.ropes.stats[0],width:Math.max(extent.x,extent.z),radial:cloth.simulation.radial};
+     })()`);
+     console.log('Bottle tip contact',JSON.stringify(result));
+     assert(result.guarded&&result.covered&&result.height>result.apex+.03&&result.finite,'A sub-grid bottle tip remains below the wrapper: '+JSON.stringify(result));
+     assert.equal(result.ribbon.status,'tied','Tip protection remains active while the ribbon gathers the neck');
+     assert(result.ribbon.heightError<.2&&result.width<2.5&&!result.radial,'A slender bottle keeps a stable sheet and compact ribbon: '+JSON.stringify(result));
+     await run("document.getElementById('cloth-settings-close').click();peelDebug.featherRenderer.render(peelDebug.scene,peelDebug.camera)");
+     const shot=await call('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});await writeFile(`/private/tmp/oxide-protected-tip${mobile?'-mobile':''}.png`,Buffer.from(shot.result.data,'base64'));
+     await run("peelDebug.cloth.clear();for(const mesh of [tipFixture.body,tipFixture.tip]){mesh.removeFromParent();mesh.geometry.dispose();}tipFixture.material.dispose();peelDebug.core.visible=true;document.querySelector('[data-metal=iron]').click()");
+   }
+   assert.equal(errors.length,0,JSON.stringify(errors));console.log('PASS: actual tip clearance through cloth faces and spiral wrapping on desktop/mobile.');
+ }else if(process.argv.includes('--ribbon-only')){
    for(const mobile of [false,true]){
      if(mobile)await call('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
      await run("document.querySelector('[data-shape=pill]').click();document.getElementById('cloth-material').click();peelDebug.cloth.rebuild([peelDebug.core],{resolution:12,fabric:'plastic',ropePoints:peelDebug.state.clothSettings.ropePoints});document.querySelector('[name=cloth-fabric][value=plastic]').click();document.getElementById('cloth-iridescent').click();for(let i=0;i<180;i++)peelDebug.cloth.advance(1/60);document.getElementById('cloth-add-ribbon').click()");

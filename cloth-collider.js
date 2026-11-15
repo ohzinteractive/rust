@@ -72,6 +72,24 @@ export function createClothCollider(meshes,{resolution=73}={}){
       nearest=distance;support.set(min[0]+row/(resolution-1)*size[0],y+.09,min[2]+col/(resolution-1)*size[2]);
     }
   }
+  // A narrow apex can fall entirely between raster samples. Keep the highest
+  // actual vertices which the upper height field underestimates, grouped by
+  // cell, so cloth faces can contact them even with no node at the apex.
+  support.y=Math.max(support.y,bounds.max.y+.09);
+  const tipBand=Math.max(.18,size[1]*.08),tipCells=new Array(resolution*resolution);
+  for(const triangle of triangles)for(let i=0;i<9;i+=3){
+    const x=triangle[i],y=triangle[i+1],z=triangle[i+2];if(y<max[1]-tipBand)continue;
+    const gx=(x-min[0])/size[0]*(resolution-1),gz=(z-min[2])/size[2]*(resolution-1);
+    const row=Math.max(0,Math.min(resolution-2,Math.floor(gx))),col=Math.max(0,Math.min(resolution-2,Math.floor(gz)));
+    const base=min[1]-.1,fx=gx-row,fz=gz-col;
+    const heights=[topField.high[row*resolution+col],topField.high[(row+1)*resolution+col],topField.high[row*resolution+col+1],topField.high[(row+1)*resolution+col+1]].map(value=>Number.isFinite(value)?value:base);
+    const sampled=(heights[0]*(1-fx)+heights[1]*fx)*(1-fz)+(heights[2]*(1-fx)+heights[3]*fx)*fz;
+    if(y<=sampled+.015)continue;
+    const cell=row*resolution+col;if(!tipCells[cell]||tipCells[cell].y<y)tipCells[cell]={x,y,z};
+  }
+  const tips=tipCells.filter(Boolean),hasTipContacts=tips.length>0;
+  const tipMin=new THREE.Vector3(Infinity,Infinity,Infinity),tipMax=new THREE.Vector3(-Infinity,-Infinity,-Infinity);
+  for(const tip of tips){tipMin.min(vertex.set(tip.x,tip.y,tip.z));tipMax.max(vertex);}
   function crossSection(y){
     const points=[];
     for(const t of triangles)for(let edge=0;edge<3;edge++){
@@ -88,8 +106,38 @@ export function createClothCollider(meshes,{resolution=73}={}){
     for(let i=unique.length-1;i>=0;i--){const p=unique[i];while(upper.length>1&&cross(upper.at(-2),upper.at(-1),p)<=0)upper.pop();upper.push(p);}
     return lower.slice(0,-1).concat(upper.slice(0,-1));
   }
-  return {bounds,support,contactNormal,crossSection,topCoverage:topCells/(resolution*resolution),
+  return {bounds,support,contactNormal,crossSection,topCoverage:topCells/(resolution*resolution),hasTipContacts,
     containsSurface:exact.contains,projectSurface:exact.project,
+    projectTipFace(p,a,b,c,padding=.065,{history=null,previous=null,maxMove=Infinity}={}){
+      if(!hasTipContacts)return false;
+      const faceHeight=Math.max(p[a+1],p[b+1],p[c+1],history?.[a+1]??-Infinity,history?.[b+1]??-Infinity,history?.[c+1]??-Infinity);
+      if(faceHeight<tipMin.y-.2)return false;
+      const ax=p[a],az=p[a+2],bx=p[b],bz=p[b+2],cx=p[c],cz=p[c+2];
+      const minX=Math.min(ax,bx,cx),maxX=Math.max(ax,bx,cx),minZ=Math.min(az,bz,cz),maxZ=Math.max(az,bz,cz);
+      if(minX>tipMax.x||maxX<tipMin.x||minZ>tipMax.z||maxZ<tipMin.z)return false;
+      const denominator=(bz-cz)*(ax-cx)+(cx-bx)*(az-cz);if(Math.abs(denominator)<1e-10)return false;
+      const left=Math.max(0,Math.floor((Math.min(ax,bx,cx)-min[0])/size[0]*(resolution-1))-1),right=Math.min(resolution-2,Math.floor((Math.max(ax,bx,cx)-min[0])/size[0]*(resolution-1))+1);
+      const bottom=Math.max(0,Math.floor((Math.min(az,bz,cz)-min[2])/size[2]*(resolution-1))-1),top=Math.min(resolution-2,Math.floor((Math.max(az,bz,cz)-min[2])/size[2]*(resolution-1))+1);
+      let changed=false;
+      function contact(tip){
+        if(!tip)return;
+        let wa=((bz-cz)*(tip.x-cx)+(cx-bx)*(tip.z-cz))/denominator,wb=((cz-az)*(tip.x-cx)+(ax-cx)*(tip.z-cz))/denominator,wc=1-wa-wb;
+        if(wa< -1e-7||wb< -1e-7||wc< -1e-7)return;
+        wa=Math.max(0,wa);wb=Math.max(0,wb);wc=Math.max(0,wc);const total=wa+wb+wc;wa/=total;wb/=total;wc/=total;
+        const y=p[a+1]*wa+p[b+1]*wb+p[c+1]*wc,target=tip.y+padding;
+        if(y>=target)return;
+        const oldY=history?history[a+1]*wa+history[b+1]*wb+history[c+1]*wc:y;
+        if(Math.max(y,oldY)<tip.y-.2)return;
+        const amount=Math.min(target-y,maxMove),den=wa*wa+wb*wb+wc*wc;
+        for(const [index,weight] of [[a,wa],[b,wb],[c,wc]]){
+          const move=amount*weight/den;p[index+1]+=move;if(previous)previous[index+1]+=move;
+        }
+        changed=true;
+      }
+      if(tips.length<=16){for(const tip of tips)contact(tip);}
+      else for(let row=left;row<=right;row++)for(let col=bottom;col<=top;col++)contact(tipCells[row*resolution+col]);
+      return changed;
+    },
     projectWrap(p,offset=0,padding=.04,angle=null,originX=null,originZ=null){
       // Continue the lowest silhouette down to the hem; projecting against
       // underside triangles would fold that skirt back through the feet.
