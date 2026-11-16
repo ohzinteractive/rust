@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import {seededRandom} from './plume-lsystem/random.js';
 import {addWindShapedSand} from './desert-sand.js';
 import {Sky} from './vendor/Sky.js';
+import {fitDesertShadow} from './desert-shadows.js';
 
 export const defaultDesertSunSettings=Object.freeze({elevation:10,azimuth:322});
 
@@ -16,7 +17,7 @@ function createHorizonDunes(floorY){
     if(row<rows&&i<segments){const a=row*(segments+1)+i,b=a+segments+1;indices.push(a,a+1,b,a+1,b+1,b);}
   }
   const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));geometry.setAttribute('color',new THREE.Float32BufferAttribute(colors,3));geometry.setIndex(indices);geometry.computeVertexNormals();
-  const mesh=new THREE.Mesh(geometry,new THREE.MeshStandardMaterial({color:0xcab28d,vertexColors:true,roughness:1}));mesh.name='Distant desert dunes';return mesh;
+  const mesh=new THREE.Mesh(geometry,new THREE.MeshStandardMaterial({color:0xcab28d,vertexColors:true,roughness:1}));mesh.name='Distant desert dunes';mesh.receiveShadow=true;return mesh;
 }
 
 function makeSandTexture(){
@@ -47,18 +48,33 @@ function makeSandTexture(){
 export function createDesertEnvironment({scene,renderer,ground,shadow,skyLight,key,rim,fill,sunSettings:initialSun={}}){
   let saved=null,sand=null,sky=null,material=null,horizon=null;
   const sunSettings={...defaultDesertSunSettings},sunDirection=new THREE.Vector3();
+  const shadowBounds=new THREE.Box3();
   const lights=[skyLight,key,rim,fill];
+  function updateShadowFrame(){
+    if(!shadowBounds.isEmpty())fitDesertShadow(key,shadowBounds,sunDirection,ground.position.y);
+    else{
+      key.target.position.copy(saved.targetPosition);key.target.updateMatrixWorld(true);
+      key.position.copy(sunDirection).multiplyScalar(30).add(key.target.position);
+      Object.assign(key.shadow.camera,{left:-14,right:14,top:14,bottom:-14,near:.5,far:80});key.shadow.camera.updateProjectionMatrix();
+      key.shadow.bias=saved.bias;
+    }
+    renderer.shadowMap.needsUpdate=true;key.shadow.needsUpdate=true;
+  }
+  function setShadowBounds(bounds){
+    if(bounds){if(shadowBounds.equals(bounds))return;shadowBounds.copy(bounds);}
+    else{if(shadowBounds.isEmpty())return;shadowBounds.makeEmpty();}
+    if(saved)updateShadowFrame();
+  }
   function setSunSettings(values={}){
     if(Number.isFinite(values.elevation))sunSettings.elevation=THREE.MathUtils.clamp(values.elevation,1,85);
     if(Number.isFinite(values.azimuth))sunSettings.azimuth=THREE.MathUtils.clamp(values.azimuth,0,360);
     sunDirection.setFromSphericalCoords(1,THREE.MathUtils.degToRad(90-sunSettings.elevation),THREE.MathUtils.degToRad(sunSettings.azimuth));
     if(sky)sky.material.uniforms.sunPosition.value.copy(sunDirection);
     if(saved){
-      key.position.copy(sunDirection).multiplyScalar(30).add(key.target.position);
+      updateShadowFrame();
       const daylight=THREE.MathUtils.smoothstep(sunSettings.elevation,2,25);
       key.color.set(0xffbd7b).lerp(new THREE.Color(0xffedd0),daylight);
       scene.fog.color.set(0xe1ba94).lerp(new THREE.Color(0xe5e2d5),daylight);
-      renderer.shadowMap.needsUpdate=true;key.shadow.needsUpdate=true;
     }
   }
   setSunSettings(initialSun);
@@ -67,7 +83,8 @@ export function createDesertEnvironment({scene,renderer,ground,shadow,skyLight,k
     if(enabled){
       saved={background:scene.background,fog:scene.fog,environment:scene.environmentIntensity,exposure:renderer.toneMappingExposure,skyToneMapped:scene.userData.skyToneMapped,
         material:ground.material,groundScale:ground.scale.clone(),shadow:shadow.visible,radius:key.shadow.radius,shadowType:renderer.shadowMap.type,
-        shadowBounds:[key.shadow.camera.left,key.shadow.camera.right,key.shadow.camera.top,key.shadow.camera.bottom,key.shadow.camera.far],
+        targetPosition:key.target.position.clone(),bias:key.shadow.bias,
+        shadowBounds:[key.shadow.camera.left,key.shadow.camera.right,key.shadow.camera.top,key.shadow.camera.bottom,key.shadow.camera.near,key.shadow.camera.far],
         lights:lights.map(light=>({intensity:light.intensity,color:light.color.clone(),groundColor:light.groundColor?.clone(),position:light.position.clone()}))};
       if(!material){
         sand=makeSandTexture();sand.anisotropy=Math.min(8,renderer.capabilities.getMaxAnisotropy());
@@ -84,7 +101,6 @@ export function createDesertEnvironment({scene,renderer,ground,shadow,skyLight,k
       skyLight.color.set(0xe0edf5);skyLight.groundColor.set(0xc9ae83);skyLight.intensity=.65;
       key.color.set(0xffedd0);key.intensity=3.8;key.shadow.radius=.65;
       renderer.shadowMap.type=THREE.PCFShadowMap;
-      Object.assign(key.shadow.camera,{left:-14,right:14,top:14,bottom:-14,far:80});key.shadow.camera.updateProjectionMatrix();
       rim.color.set(0xdce7e6);rim.intensity=.18;
       fill.color.set(0xffe6bf);fill.intensity=.1;
       setSunSettings();
@@ -94,13 +110,14 @@ export function createDesertEnvironment({scene,renderer,ground,shadow,skyLight,k
       if(saved.skyToneMapped===undefined)delete scene.userData.skyToneMapped;else scene.userData.skyToneMapped=saved.skyToneMapped;
       renderer.toneMappingExposure=saved.exposure;ground.material=saved.material;ground.scale.copy(saved.groundScale);shadow.visible=saved.shadow;key.shadow.radius=saved.radius;
       renderer.shadowMap.type=saved.shadowType;
-      [key.shadow.camera.left,key.shadow.camera.right,key.shadow.camera.top,key.shadow.camera.bottom,key.shadow.camera.far]=saved.shadowBounds;key.shadow.camera.updateProjectionMatrix();
+      [key.shadow.camera.left,key.shadow.camera.right,key.shadow.camera.top,key.shadow.camera.bottom,key.shadow.camera.near,key.shadow.camera.far]=saved.shadowBounds;key.shadow.camera.updateProjectionMatrix();
+      key.target.position.copy(saved.targetPosition);key.target.updateMatrixWorld(true);key.shadow.bias=saved.bias;shadowBounds.makeEmpty();
       lights.forEach((light,i)=>{light.intensity=saved.lights[i].intensity;light.color.copy(saved.lights[i].color);light.position.copy(saved.lights[i].position);if(light.groundColor)light.groundColor.copy(saved.lights[i].groundColor);});
       saved=null;
     }
     const materials=new Set();scene.traverse(object=>{for(const material of [object.material].flat().filter(Boolean))materials.add(material);});
     materials.forEach(material=>{material.needsUpdate=true;});renderer.shadowMap.needsUpdate=true;
   }
-  return {setEnabled,setSunSettings,get sunSettings(){return {...sunSettings};},get sunDirection(){return sunDirection.clone();},get sky(){return sky;},get enabled(){return !!saved;},
+  return {setEnabled,setSunSettings,setShadowBounds,get sunSettings(){return {...sunSettings};},get sunDirection(){return sunDirection.clone();},get sky(){return sky;},get enabled(){return !!saved;},
     dispose(){setEnabled(false);sand?.dispose();sky?.geometry.dispose();sky?.material.dispose();sky?.removeFromParent();material?.dispose();horizon?.geometry.dispose();horizon?.material.dispose();horizon?.removeFromParent();}};
 }

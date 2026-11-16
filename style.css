@@ -258,6 +258,9 @@ html,body{width:100%;height:100%;overflow:hidden}
 .desert-daylight .icon-button{color:#48513e;border-color:#777c6755;background:#e9e3cebb}
 .palm-oasis-toggle{display:flex;align-items:center;gap:8px;margin:0 0 16px;font-size:11px;cursor:pointer}
 .palm-oasis-toggle input{accent-color:#c4b68a}
+.tower-cloth-settings{margin-bottom:20px}
+.tower-cloth-settings .palm-oasis-toggle{margin-bottom:8px}
+.tower-cloth-settings .feather-flight-help:empty{display:none}
 #palm-sun-settings{border:0;padding:0;margin:0;min-width:0}
 #palm-sun-settings:disabled,#palm-sun-reset:disabled{opacity:.45}
 #palm-sun-reset:disabled{cursor:default}

@@ -121,6 +121,11 @@
             <div class="feather-actions"><button id="palm-camera-auto" type="button">Auto FOV</button><button id="palm-sun-reset" type="button">Reset sun</button></div>
           </details>
           <p class="feather-flight-help">Jeddah Tower stands 1,000 m tall in the desert, about 2.8 km beyond the palm.</p>
+          <div class="tower-cloth-settings">
+            <label class="palm-oasis-toggle"><input id="palm-tower-cloth" type="checkbox"> Wrap Jeddah Tower</label>
+            <p id="palm-tower-cloth-status" class="feather-flight-help" role="status" aria-live="polite"></p>
+            <div id="palm-tower-cloth-actions" class="feather-actions" hidden><button id="palm-tower-cloth-settings" type="button" aria-expanded="false" aria-controls="cloth-options">Cloth settings</button></div>
+          </div>
           <div class="feather-setting"><div><label for="palm-mirage">Mirage</label><output id="palm-mirage-value" for="palm-mirage">70%</output></div><input id="palm-mirage" type="range" min="0" max="100" value="70"><p>Heat shimmer and a faint reflection around the distant tower.</p></div>
           <div class="feather-setting"><div><label for="palm-fronds">Fronds</label><output id="palm-fronds-value" for="palm-fronds">41</output></div><input id="palm-fronds" type="range" min="12" max="48" value="41"></div>
           <div class="feather-setting"><div><label for="palm-density">Leaflet density</label><output id="palm-density-value" for="palm-density">95%</output></div><input id="palm-density" type="range" min="25" max="100" value="95"></div>

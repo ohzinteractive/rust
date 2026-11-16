@@ -8,8 +8,10 @@ import {checkMazeFeathers} from './maze-feathers-browser.mjs';
 import {checkCloth,checkClothRopes,checkDelayedWrapping,checkHorseClothContacts} from './cloth-browser.mjs';
 import {checkMazeMaps,checkCourtyardShortcut} from './maze-maps-browser.mjs';
 import {checkDesertSky} from './desert-sky-browser.mjs';
+import {checkTowerCloth} from './tower-cloth-browser.mjs';
+import {checkBuildingShadows} from './desert-shadows-browser.mjs';
 const root=fileURLToPath(new URL('../',import.meta.url)).replace(/\/$/,'');
-const server=createServer(async(req,res)=>{try {const path=decodeURIComponent(new URL(req.url,'http://localhost').pathname); let data=await readFile(root+(path==='/'?'/index.html':path));if(path==='/app.js')data=data.toString()+'\nwindow.peelDebug={models,state,scene,cloth,palm,oasis,mirage,renderScene,feathers,core,surface,renderer,camera,controls,featherRenderer,mazeNavigation,get idle(){return !renderDirty}};';res.setHeader('Content-Type',path.endsWith('.js')?'text/javascript':path.endsWith('.css')?'text/css':path.endsWith('.woff2')?'font/woff2':'text/html');res.end(data);}catch{res.writeHead(404);res.end();}});
+const server=createServer(async(req,res)=>{try {const path=decodeURIComponent(new URL(req.url,'http://localhost').pathname); let data=await readFile(root+(path==='/'?'/index.html':path));if(path==='/app.js')data=data.toString()+'\nwindow.peelDebug={models,state,scene,get cloth(){return cloth;},specimenCloth,towerCloth,palm,oasis,mirage,renderScene,feathers,core,surface,renderer,camera,controls,featherRenderer,mazeNavigation,get idle(){return !renderDirty}};';res.setHeader('Content-Type',path.endsWith('.js')?'text/javascript':path.endsWith('.css')?'text/css':path.endsWith('.woff2')?'font/woff2':'text/html');res.end(data);}catch{res.writeHead(404);res.end();}});
 await new Promise(r=>server.listen(8765,'127.0.0.1',r));
 const browser=spawn(process.env.BROWSER_PATH || '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser',['--headless','--no-first-run','--no-default-browser-check','--disable-background-networking','--use-angle=swiftshader','--enable-unsafe-swiftshader','--remote-debugging-port=9225','--user-data-dir=/private/tmp/oxide-qa-browser','about:blank'],{stdio:'ignore'});
 let ws;
@@ -27,7 +29,13 @@ try{
  let loaded=false;for(let i=0;i<100;i++){await delay(200);loaded=await run("document.readyState==='complete'&&!document.getElementById('loading')");if(loaded||errors.length)break;}
  assert.equal(errors.length,0,JSON.stringify(errors));assert(loaded,'Scene did not finish loading');
  assert(await run("document.getElementById('webgl-error').hidden"));
- if(process.argv.includes('--sky-only')){
+ if(process.argv.includes('--shadows-only')){
+   await checkBuildingShadows({run,call,delay});
+   assert.equal(errors.length,0,JSON.stringify(errors));console.log('PASS: tower and cloth ground shadows, sun changes and Oasis/studio restoration on desktop/mobile.');
+ }else if(process.argv.includes('--tower-cloth-only')){
+   await checkTowerCloth({run,call,delay});
+   assert.equal(errors.length,0,JSON.stringify(errors));console.log('PASS: kilometer-scale Jeddah cloth, fabric and binding controls, pause/redrape and desert/studio transitions on desktop/mobile.');
+ }else if(process.argv.includes('--sky-only')){
    await checkDesertSky({run,call,delay});
    assert.equal(errors.length,0,JSON.stringify(errors));console.log('PASS: editable camera FOV, linked Sky and sun, shadows and water on desktop/mobile.');
  }else if(process.argv.includes('--oasis-only')){

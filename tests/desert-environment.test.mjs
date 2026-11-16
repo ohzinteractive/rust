@@ -29,6 +29,10 @@ test('desert setting restores studio lighting, ground and fog across repeated to
   assert(direction.distanceTo(setting.sunDirection)<1e-10,'Shadow casting sunlight follows the requested position');
   assert(direction.distanceTo(sky.material.uniforms.sunPosition.value)<1e-10,'The sky and shadow light share one sun direction');
   assert(direction.distanceTo(originalDirection)>.1,'Moving the sun changes its actual direction');
+  const towerBounds=new THREE.Box3(new THREE.Vector3(-480,-1.75,-320),new THREE.Vector3(-450,198.25,-296));
+  setting.setShadowBounds(towerBounds);assert(key.target.position.x< -400&&key.shadow.camera.far>200,'Building view covers the distant tower shadow');
+  setting.setShadowBounds(null);assert.deepEqual(key.target.position,new THREE.Vector3());assert.equal(key.shadow.camera.far,80,'Oasis view restores its focused shadow map');
+  setting.setShadowBounds(towerBounds);
   setting.setEnabled(true);setting.setEnabled(false);
   assert.equal(scene.background,background);assert.equal(scene.fog,fog);assert.equal(ground.material,studioMaterial);
   assert.deepEqual(ground.scale,new THREE.Vector3(1,1,1));
@@ -36,6 +40,7 @@ test('desert setting restores studio lighting, ground and fog across repeated to
   assert.equal(renderer.shadowMap.type,THREE.PCFSoftShadowMap,'The studio shadow filter is restored');
   assert.equal(dunes.visible,false,'Distant scenery is hidden outside the desert');
   assert.equal(sky.visible,false);assert.equal(scene.userData.skyToneMapped,undefined);
+  assert.deepEqual(key.target.position,new THREE.Vector3());assert.equal(key.shadow.bias,0,'Studio restores the original shadow target and bias');
   assert.deepEqual(skyLight.groundColor,groundColor);
   lights.forEach((light,i)=>{assert.equal(light.intensity,original[i].intensity);assert.deepEqual(light.color,original[i].color);assert.deepEqual(light.position,original[i].position);});
   setting.setEnabled(true);assert.equal(ground.material,sand);assert.equal(setting.sky,sky,'Switching reuses sky and sand resources');

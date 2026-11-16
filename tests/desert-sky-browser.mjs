@@ -15,7 +15,15 @@ export async function checkDesertSky({run,call,delay}){
       for(const [key,value] of [['fronds','41'],['density','95%'],['dryFraction','38%'],['length','1.66'],['droop','139%'],['curve','40%'],['wind','48%']])assert(await run(`document.getElementById('palm-${key}-value').value===${JSON.stringify(value)}`),'Preset output '+key+' matches its actual setting');
     }
     assert(await run("(()=>{const row=document.getElementById('oasis-material').parentElement;return row.children[4].id==='feather-material'&&row.children[5].id==='oasis-material'&&row.children[6].id==='cloth-material';})()"),'The palm icon sits beside Feathers and Cloth');
+    assert(await run("document.getElementById('surface-view').textContent==='Building'&&document.getElementById('layers-view').textContent==='Oasis'&&!document.getElementById('layers-view').disabled&&document.getElementById('layers-view').getAttribute('aria-pressed')==='true'&&document.querySelector('.view-mode').getAttribute('aria-label')==='Scene view'"),'Palm mode replaces Surface/Layers with an enabled Building/Oasis camera switch');
+    await run("document.getElementById('surface-view').click()");
     let ready=false;for(let i=0;i<75;i++){ready=await run("peelDebug.scene.getObjectByName('Jeddah building').children.length>0");if(ready)break;await delay(200);}assert(ready,'The distant tower loads');
+    for(let i=0;i<20&&!(await run('peelDebug.controls.target.x< -400'));i++)await delay(100);
+    assert(await run("peelDebug.controls.target.x< -400&&peelDebug.controls.target.y>50&&document.getElementById('surface-view').getAttribute('aria-pressed')==='true'&&document.getElementById('layers-view').getAttribute('aria-pressed')==='false'&&peelDebug.oasis.group.visible&&!peelDebug.state.palmTowerCloth"),'Building view frames Jeddah without hiding the oasis or starting cloth');
+    await run("document.getElementById('reset-view').click()");
+    assert(await run("peelDebug.controls.target.x< -400&&document.getElementById('surface-view').getAttribute('aria-pressed')==='true'"),'Reset preserves Building view');
+    await run("document.getElementById('layers-view').click()");
+    assert(await run("Math.abs(peelDebug.controls.target.x+3.5)<.001&&peelDebug.controls.maxDistance===45&&document.getElementById('layers-view').getAttribute('aria-pressed')==='true'"),'Oasis view restores its camera framing');
     assert(await run("peelDebug.scene.getObjectByName('Desert sky').isSky&&peelDebug.scene.getObjectByName('Desert sky').visible"),'The desert uses the Three.js Sky');
     await run("document.getElementById('oasis-settings-close').click();peelDebug.renderScene();window.skyGeometry=peelDebug.palm.group.getObjectByName('Green palm frond').geometry;window.skyCameraPosition=peelDebug.camera.position.clone()");
     const initialSky=await run(skyPixels);
@@ -36,6 +44,7 @@ export async function checkDesertSky({run,call,delay}){
     await run("document.getElementById('oasis-settings-toggle').click();document.getElementById('palm-regrow').click();document.getElementById('palm-oasis').click()");
     assert(await run('peelDebug.camera.fov===44&&peelDebug.state.palmView.azimuth===240'),'Regrowing and switching oasis retain settings');
     await run("document.querySelector('[name=palm-environment][value=studio]').click()");
+    assert(await run("document.getElementById('surface-view').disabled&&!document.getElementById('layers-view').disabled&&document.getElementById('layers-view').getAttribute('aria-pressed')==='true'"),'The unavailable building view is disabled in the dark studio');
     assert(await run("!peelDebug.scene.getObjectByName('Desert sky').visible&&peelDebug.scene.background===skyStudio.background&&peelDebug.scene.children.find(o=>o.isDirectionalLight&&o.castShadow).position.distanceTo(skyStudio.key)<1e-9&&document.getElementById('palm-sun-settings').disabled&&peelDebug.camera.fov===44"),'Studio lighting is restored while the lens remains editable');
     await run("document.querySelector('[name=palm-environment][value=desert]').click();document.getElementById('palm-oasis').click()");
     assert(await run("peelDebug.scene.getObjectByName('Desert sky').visible&&!document.getElementById('palm-sun-settings').disabled&&peelDebug.state.palmView.azimuth===240&&peelDebug.camera.fov===44"),'Returning to the desert preserves the chosen sun and lens');
@@ -48,6 +57,7 @@ export async function checkDesertSky({run,call,delay}){
     const settingsShot=await call('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});
     await writeFile(`/private/tmp/oxide-sky-settings${mobile?'-mobile':''}.png`,Buffer.from(settingsShot.result.data,'base64'));
     await run("document.getElementById('palm-exit').click()");
+    assert(await run("document.getElementById('surface-view').textContent==='Surface'&&document.getElementById('layers-view').textContent==='Layers'&&document.getElementById('layers-view').disabled&&document.querySelector('.view-mode').getAttribute('aria-label')==='Material view'"),'Leaving palms restores the material view controls');
     assert(await run("!peelDebug.palm.group.visible&&document.getElementById('oasis-controls').hidden&&!document.getElementById('feather-controls').hidden&&!document.getElementById('feather-options').hidden&&document.getElementById('feather-material').getAttribute('aria-pressed')==='true'&&document.getElementById('oasis-material').getAttribute('aria-pressed')==='false'"),'Feather coat opens the original feather settings');
     await run("document.getElementById('oasis-material').click();document.getElementById('oasis-material').click()");
     assert(await run("document.getElementById('oasis-options').hidden&&peelDebug.palm.group.visible"),'Clicking the selected Oasis swatch toggles its settings without leaving the scene');
