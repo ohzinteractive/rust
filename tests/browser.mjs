@@ -11,7 +11,7 @@ import {checkDesertSky} from './desert-sky-browser.mjs';
 import {checkTowerCloth} from './tower-cloth-browser.mjs';
 import {checkBuildingShadows} from './desert-shadows-browser.mjs';
 const root=fileURLToPath(new URL('../',import.meta.url)).replace(/\/$/,'');
-const server=createServer(async(req,res)=>{try {const path=decodeURIComponent(new URL(req.url,'http://localhost').pathname); let data=await readFile(root+(path==='/'?'/index.html':path));if(path==='/app.js')data=data.toString()+'\nwindow.peelDebug={models,state,scene,get cloth(){return cloth;},specimenCloth,towerCloth,palm,oasis,mirage,renderScene,feathers,core,surface,renderer,camera,controls,featherRenderer,mazeNavigation,get idle(){return !renderDirty}};';res.setHeader('Content-Type',path.endsWith('.js')?'text/javascript':path.endsWith('.css')?'text/css':path.endsWith('.woff2')?'font/woff2':'text/html');res.end(data);}catch{res.writeHead(404);res.end();}});
+const server=createServer(async(req,res)=>{try {const path=decodeURIComponent(new URL(req.url,'http://localhost').pathname); let data=await readFile(root+(path==='/'?'/index.html':path));if(path==='/app.js')data=data.toString()+'\nwindow.peelDebug={models,state,scene,get cloth(){return cloth;},specimenCloth,towerCloth,fern,fernLife,fernDispersal,palm,oasis,mirage,renderScene,feathers,core,surface,renderer,camera,controls,featherRenderer,mazeNavigation,get idle(){return !renderDirty}};';res.setHeader('Content-Type',path.endsWith('.js')?'text/javascript':path.endsWith('.css')?'text/css':path.endsWith('.woff2')?'font/woff2':'text/html');res.end(data);}catch{res.writeHead(404);res.end();}});
 await new Promise(r=>server.listen(8765,'127.0.0.1',r));
 const browser=spawn(process.env.BROWSER_PATH || '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser',['--headless','--no-first-run','--no-default-browser-check','--disable-background-networking','--use-angle=swiftshader','--enable-unsafe-swiftshader','--remote-debugging-port=9225','--user-data-dir=/private/tmp/oxide-qa-browser','about:blank'],{stdio:'ignore'});
 let ws;
@@ -29,7 +29,188 @@ try{
  let loaded=false;for(let i=0;i<100;i++){await delay(200);loaded=await run("document.readyState==='complete'&&!document.getElementById('loading')");if(loaded||errors.length)break;}
  assert.equal(errors.length,0,JSON.stringify(errors));assert(loaded,'Scene did not finish loading');
  assert(await run("document.getElementById('webgl-error').hidden"));
- if(process.argv.includes('--shadows-only')){
+ if(process.argv.includes('--fern-horse-only')){
+   await run("document.getElementById('fern-material').click();document.getElementById('horse-shape').click()");
+   for(let i=0;i<150;i++){await delay(200);if(await run("peelDebug.models.sampleKey==='horse'"))break;}
+   assert.equal(await run('peelDebug.models.sampleKey'),'horse');
+   await run("peelDebug.fernDispersal.setPlaying(false);peelDebug.renderScene()");
+   assert(await run("peelDebug.models.sampleKey==='horse'&&peelDebug.fernDispersal.surfaceMode&&peelDebug.fernDispersal.group.visible&&peelDebug.fernDispersal.stats.colonies>0"));
+   await run("peelDebug.fernDispersal.setSpeed(8);peelDebug.fernDispersal.setPlaying(true);for(let i=0;i<160;i++)peelDebug.fernDispersal.advance(.05);peelDebug.fernDispersal.setPlaying(false);peelDebug.renderScene()");
+   assert(await run('peelDebug.fernDispersal.stats.grown>0'));
+   const shot=await call('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});await writeFile('/private/tmp/oxide-fern-horse.png',Buffer.from(shot.result.data,'base64'));
+   assert.equal(errors.length,0,JSON.stringify(errors));await run("document.getElementById('fern-material').click();peelDebug.fernDispersal.setPlaying(false)");assert(await run('!peelDebug.models.active&&!peelDebug.fernDispersal.surfaceMode'));assert.equal(await run("document.getElementById('fern-coat-material')===null"),true);console.log('PASS: Ferns → Horse coating → Ferns ground scene, without a separate coat button.');
+ }else if(process.argv.includes('--fern-surface-only')){
+   await run("document.getElementById('fern-material').click();document.querySelector('[data-shape=cube]').click();peelDebug.fernDispersal.setPlaying(false);peelDebug.renderScene()");
+   assert(await run("peelDebug.fernDispersal.surfaceMode&&peelDebug.core.visible&&peelDebug.core.parent.visible&&peelDebug.fernDispersal.stats.colonies>0"));
+   await run("peelDebug.fernDispersal.setSpeed(8);peelDebug.fernDispersal.setPlaying(true);for(let i=0;i<240;i++)peelDebug.fernDispersal.advance(.05);peelDebug.fernDispersal.setPlaying(false);peelDebug.renderScene()");
+   assert(await run('peelDebug.fernDispersal.stats.grown>0&&peelDebug.fernDispersal.stats.emitted>0'));
+   const shot=await call('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});await writeFile('/private/tmp/oxide-fern-surface.png',Buffer.from(shot.result.data,'base64'));
+   await run("document.querySelector('[data-shape=sphere]').click();peelDebug.fernDispersal.setPlaying(false);peelDebug.renderScene()");
+   assert(await run("peelDebug.fernDispersal.surfaceMode&&document.getElementById('fern-on-object').checked"));
+   assert.equal(errors.length,0,JSON.stringify(errors));console.log('PASS: fern material on object triangles, growth, spores and shape changes.');
+ }else if(process.argv.includes('--fern-pointer-only')){
+   await run("document.getElementById('fern-material').click();peelDebug.fernDispersal.setPlaying(false)");
+   const results=await run(`(()=>{
+     const sim=peelDebug.fernDispersal,canvas=peelDebug.renderer.domElement,rect=canvas.getBoundingClientRect();
+     const origin=sim.getWindOrigin(peelDebug.camera.position.clone());
+     function move(point){point.project(peelDebug.camera);canvas.dispatchEvent(new PointerEvent('pointermove',{clientX:rect.left+(point.x+1)*rect.width/2,clientY:rect.top+(1-point.y)*rect.height/2,pointerType:'mouse'}));return sim.wind;}
+     const calm=move(origin.clone()),near=move(origin.clone().add({x:1,y:0,z:0})),far=move(origin.clone().add({x:4,y:0,z:0}));
+     canvas.dispatchEvent(new PointerEvent('pointerleave'));return {calm,near,far,left:sim.wind};
+   })()`);
+   assert(results.calm.strength<.001);assert(results.far.strength>results.near.strength*3);assert(Math.abs(results.far.direction)<.1);assert(!results.left.pointer);
+   await run('peelDebug.renderScene()');assert.equal(errors.length,0,JSON.stringify(errors));console.log('PASS: pointer direction, distance-based strength and automatic wind restore.');
+ }else if(process.argv.includes('--fern-lod-only')){
+   await run("document.getElementById('fern-material').click();(()=>{for(const [id,value] of [['fern-fronds',12],['fern-density',50],['fern-population-limit',16],['fern-wind',50]]){const input=document.getElementById(id);input.value=value;input.dispatchEvent(new Event('input'));}})();document.getElementById('fern-spores-release').click();peelDebug.fernDispersal.setSpeed(16);peelDebug.fernDispersal.setPlaying(true);for(let i=0;i<160;i++)peelDebug.fernDispersal.advance(.05);peelDebug.fernDispersal.setPlaying(false)");
+   await run("(()=>{const roots=peelDebug.fernDispersal.group.getObjectByName('New fern colonies').children;const root=roots[Math.floor(roots.length/2)].position;peelDebug.controls.enableDamping=false;peelDebug.controls.target.copy(root);peelDebug.camera.position.copy(root).add({x:0,y:2,z:4});peelDebug.controls.update();peelDebug.renderScene();})()");
+   const near=await run('peelDebug.fernDispersal.renderStats');assert(near.lod[0]>3,'All large foreground crowns retain full detail');
+   const shot=await call('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});await writeFile('/private/tmp/oxide-fern-lod-near.png',Buffer.from(shot.result.data,'base64'));
+   const pose=await run('JSON.stringify([peelDebug.camera.position.toArray(),peelDebug.controls.target.toArray()])');
+   await run('peelDebug.fernDispersal.updateView(peelDebug.camera);peelDebug.renderScene()');
+   assert.equal(await run('JSON.stringify([peelDebug.camera.position.toArray(),peelDebug.controls.target.toArray()])'),pose);
+   await run('peelDebug.camera.zoom=3;peelDebug.camera.updateProjectionMatrix();peelDebug.renderScene()');
+   const zoomed=await run('peelDebug.fernDispersal.renderStats');assert(zoomed.lod[0]/zoomed.visible>=near.lod[0]/near.visible,'Zoom increases the share of visible crowns using full detail');
+   assert.equal(errors.length,0,JSON.stringify(errors));console.log('PASS: foreground detail without a three-plant cap, lens-aware LOD and fixed camera.',JSON.stringify(near));
+ }else if(process.argv.includes('--fern-growth-only')){
+   await run("document.getElementById('fern-material').click();(()=>{for(const [id,value] of [['fern-fronds',18],['fern-density',60],['fern-population-limit',8],['fern-wind',0]]){const input=document.getElementById(id);input.value=value;input.dispatchEvent(new Event('input'));}})();document.getElementById('fern-spores-release').click();peelDebug.controls.enableDamping=false;peelDebug.controls.minDistance=.3;peelDebug.camera.position.set(1.6,-.4,2.2);peelDebug.controls.target.set(0,-1.3,0);peelDebug.controls.update();peelDebug.fernDispersal.setPlaying(false)");
+   const pose=await run('JSON.stringify([peelDebug.camera.position.toArray(),peelDebug.controls.target.toArray()])');
+   for(const seconds of [0,6,12,28,48,80]){
+     if(seconds)await run(`(()=>{const sim=peelDebug.fernDispersal;sim.setPlaying(true);for(let i=0;i<${seconds===6||seconds===12?120:seconds===28?320:seconds===48?400:640};i++)sim.advance(.05);sim.setPlaying(false);peelDebug.renderScene();})()`);
+     else await run('peelDebug.renderScene()');
+     const plant=await run('peelDebug.fernDispersal.inspectPlant(0)');assert(plant.fronds.some(f=>f.visible));
+     const shot=await call('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});await writeFile(`/private/tmp/oxide-fern-fronds-${seconds}.png`,Buffer.from(shot.result.data,'base64'));
+   }
+   const end=await run('peelDebug.fernDispersal.inspectPlant(0)');assert(end.fronds.some(f=>f.bornAt>60),'The original crown adds replacement fronds');
+   const after=await run('JSON.stringify([peelDebug.camera.position.toArray(),peelDebug.controls.target.toArray()])');assert.equal(after,pose,'Growth does not move the camera');
+   await run("document.getElementById('fern-cycle-toggle').click();document.getElementById('fern-cycle-exit').click();peelDebug.renderScene()");
+   assert.equal(errors.length,0,JSON.stringify(errors));console.log('PASS: independently unfurling and aging fronds, replacement growth, shared shadows and fixed camera.');
+ }else if(process.argv.includes('--fern-aging-only')){
+   for(const mobile of [false,true]){
+     if(mobile){await call('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});for(let i=0;i<40;i++){if(await run("Math.abs(peelDebug.camera.aspect-document.getElementById('canvas-wrap').clientWidth/document.getElementById('canvas-wrap').clientHeight)<.001"))break;await delay(100);}}
+     await run("document.getElementById('fern-material').click();(()=>{for(const [id,value] of [['fern-fronds',12],['fern-density',40],['fern-simulation-speed',16],['fern-population-limit',32]]){const input=document.getElementById(id);input.value=value;input.dispatchEvent(new Event('input'));}})();document.getElementById('fern-spores-release').click()");
+     const pose=await run('JSON.stringify([peelDebug.camera.position.toArray(),peelDebug.controls.target.toArray()])');
+     const drying=await run("(()=>{const sim=peelDebug.fernDispersal;for(let i=0;i<600&&sim.stats.parentDryness<.55;i++)sim.advance(.05);document.getElementById('fern-spores-pause').click();peelDebug.renderScene();return sim.stats;})()");
+     assert.equal(drying.parentStage,'drying');assert(drying.parentSize===1,'Growth is per frond, not whole-canopy scaling');assert(drying.parentDryness>.5);
+     assert(await run('peelDebug.fernDispersal.inspectPlant(0).fronds.some(f=>f.visible&&f.dryness>.5)'));
+     const shot=await call('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});await writeFile(`/private/tmp/oxide-fern-aging${mobile?'-mobile':''}.png`,Buffer.from(shot.result.data,'base64'));
+     const turnover=await run("(()=>{const sim=peelDebug.fernDispersal;sim.setPlaying(true);for(let i=0;i<300;i++)sim.advance(.05);document.getElementById('fern-spores-pause').click();peelDebug.renderScene();return sim.stats;})()");
+     assert.equal(turnover.parentStage,'dead');assert(turnover.died>0&&turnover.born>32&&turnover.colonies<=32);assert.equal(turnover.reproducing,turnover.grown);assert(await run('!peelDebug.fern.group.visible'));
+     const after=await run('JSON.stringify([peelDebug.camera.position.toArray(),peelDebug.controls.target.toArray()])');assert(JSON.parse(after).flat().every((v,i)=>Math.abs(v-JSON.parse(pose).flat()[i])<1e-9),'Aging preserves the camera');
+     await run("document.getElementById('fern-cycle-toggle').click();document.getElementById('fern-cycle-exit').click()");assert(await run('!peelDebug.fern.group.visible'),'Returning from the diagram preserves the old fern death');
+     await run("document.getElementById('fern-settings-toggle').click();document.getElementById('fern-spores-release').click()");assert(await run('peelDebug.fern.group.visible&&peelDebug.fernDispersal.stats.died===0'));
+     await run("document.querySelector('[data-metal=iron]').click()");
+     console.log('Fern aging',mobile?'mobile':'desktop',JSON.stringify(turnover));
+   }
+   assert.equal(errors.length,0,JSON.stringify(errors));console.log('PASS: continued growth, brown foliage, death, replacement, restart and fixed camera on desktop/mobile.');
+ }else if(process.argv.includes('--fern-performance-only')){
+   await run("document.getElementById('fern-material').click();(()=>{for(const [id,value] of [['fern-population-limit',512],['fern-simulation-speed',32],['fern-wind',50]]){const input=document.getElementById(id);input.value=value;input.dispatchEvent(new Event('input'));}})();document.getElementById('fern-spores-release').click();peelDebug.fernDispersal.setPlaying(false)");
+   assert(await run("peelDebug.fernDispersal.populationLimit===512&&Number(document.getElementById('fern-population-limit').max)===512"));
+   const initialPose=await run('JSON.stringify([peelDebug.camera.position.toArray(),peelDebug.controls.target.toArray()])');
+   const result=await run("(()=>{const sim=peelDebug.fernDispersal;sim.setPlaying(true);const start=performance.now();for(let i=0;i<1800;i++)sim.advance(.05);sim.setPlaying(false);peelDebug.renderScene();return {milliseconds:performance.now()-start,stats:sim.stats,render:sim.renderStats};})()");
+   assert.equal(result.stats.colonies,512);assert(result.stats.grown>256);assert(result.stats.died>0);assert(result.render.culled>0);assert(result.render.drawCalls<=5);
+   const finalPose=await run('JSON.stringify([peelDebug.camera.position.toArray(),peelDebug.controls.target.toArray()])');
+   assert(JSON.parse(finalPose).flat().every((value,i)=>Math.abs(value-JSON.parse(initialPose).flat()[i])<1e-9),'Population growth and detail selection preserve the camera');
+   console.log('512 fern simulation',JSON.stringify(result));
+   for(const mobile of [false,true]){
+     if(mobile){await call('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});for(let i=0;i<40;i++){if(await run("Math.abs(peelDebug.camera.aspect-document.getElementById('canvas-wrap').clientWidth/document.getElementById('canvas-wrap').clientHeight)<.001"))break;await delay(100);}}
+     await run("document.getElementById('reset-view').click();peelDebug.renderScene()");
+     const render=await run("(()=>{const sim=peelDebug.fernDispersal,canopies=sim.group.getObjectByName('Full-size offspring canopies');return {...sim.renderStats,fullTriangles:canopies.children[0].geometry.attributes.position.count/3*sim.stats.colonies,gpuTriangles:peelDebug.renderer.info.render.triangles};})()");
+     assert(render.visible>400,'Explicit reset can show the entire colony');assert(render.lod[2]>400,'Distant ferns use simple silhouettes');assert(render.triangles<render.fullTriangles*.03);assert(render.drawCalls<=5);
+     console.log('512 fern rendering',mobile?'mobile':'desktop',JSON.stringify(render));
+     const shot=await call('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});await writeFile(`/private/tmp/oxide-fern-512${mobile?'-mobile':''}.png`,Buffer.from(shot.result.data,'base64'));
+   }
+   assert.equal(errors.length,0,JSON.stringify(errors));console.log('PASS: 512 mature ferns, bounded rendering, paused detail selection and fixed camera on desktop/mobile.');
+ }else if(process.argv.includes('--fern-camera-only')){
+   const cameraPose=()=>run('JSON.stringify({position:peelDebug.camera.position.toArray(),rotation:peelDebug.camera.quaternion.toArray(),target:peelDebug.controls.target.toArray(),zoom:peelDebug.camera.zoom,fov:peelDebug.camera.fov})');
+   for(const mobile of [false,true]){
+     if(mobile)await call('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
+     await run("document.getElementById('fern-material').click();(()=>{for(const [id,value] of [['fern-fronds',6],['fern-density',25],['fern-population-limit',8]]){const input=document.getElementById(id);input.value=value;input.dispatchEvent(new Event('input'));}})();peelDebug.controls.enableDamping=false;peelDebug.camera.position.set(6,4,8);peelDebug.controls.target.set(.3,-1,.2);peelDebug.controls.update()");
+     for(let i=0;i<40;i++){if(await run("Math.abs(peelDebug.camera.aspect-document.getElementById('canvas-wrap').clientWidth/document.getElementById('canvas-wrap').clientHeight)<.001"))break;await delay(100);}
+     const pose=await cameraPose();
+     await run("document.getElementById('fern-cycle-toggle').click()");assert.equal(await cameraPose(),pose,'Opening life cycle preserves the view');
+     for(let stage=0;stage<7;stage++){
+       await run(`document.querySelectorAll('[data-fern-stage]')[${stage}].click()`);
+       assert.equal(await cameraPose(),pose,'Stage selection preserves the view');
+     }
+     await run("(()=>{const input=document.getElementById('fern-cycle-progress');input.value=199;input.dispatchEvent(new Event('input'));})();document.getElementById('fern-cycle-play').click()");
+     let crossed=false;for(let i=0;i<40;i++){await delay(100);crossed=await run('peelDebug.fernLife.stage>=2');if(crossed)break;}
+     assert(crossed,'Playback crosses a stage boundary');assert.equal(await cameraPose(),pose,'Playback preserves the view');
+     await run("document.getElementById('fern-cycle-exit').click();document.getElementById('fern-settings-toggle').click();document.getElementById('fern-spores-release').click();peelDebug.fernDispersal.setSpeed(32);for(let i=0;i<100;i++)peelDebug.fernDispersal.advance(.05);peelDebug.fernDispersal.setPlaying(false)");
+     await delay(200);assert(await run('peelDebug.fernDispersal.stats.generation>=2'));assert.equal(await cameraPose(),pose,'New generations and replay preserve the view');
+     await run("document.getElementById('reset-view').click()");assert.notEqual(await cameraPose(),pose,'Reset view still frames the colony on request');
+     await run("document.querySelector('[data-metal=iron]').click()");
+   }
+   assert.equal(errors.length,0,JSON.stringify(errors));console.log('PASS: camera stays fixed through fern stages, playback, replay and new generations on desktop/mobile; explicit reset still frames the scene.');
+ }else if(process.argv.includes('--fern-spores-only')||process.argv.includes('--fern-spread-only')){
+   for(const mobile of [false,true]){
+     if(mobile)await call('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
+     await run('window.fernPreviousFog=peelDebug.scene.fog;window.fernPreviousFar=peelDebug.camera.far');
+     await run("document.getElementById('fern-material').click()");
+     if(process.argv.includes('--fern-spread-only'))await run("(()=>{for(const [id,value] of [['fern-fronds',6],['fern-density',25],['fern-population-limit',16]]){const input=document.getElementById(id);input.value=value;input.dispatchEvent(new Event('input'));}})()");
+     await run("document.getElementById('fern-spores-release').click()");
+     assert(await run("peelDebug.fernDispersal.playing&&peelDebug.fernDispersal.group.visible&&peelDebug.fern.group.visible&&!peelDebug.fernLife.active"));
+     await run("for(let i=0;i<65;i++)peelDebug.fernDispersal.advance(.05);peelDebug.renderScene()");
+     assert(await run('peelDebug.fernDispersal.stats.airborne>50'));
+     const flight=await call('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});await writeFile(`/private/tmp/oxide-fern-spores-flight${mobile?'-mobile':''}.png`,Buffer.from(flight.result.data,'base64'));
+     await run("for(let i=0;i<1400;i++)peelDebug.fernDispersal.advance(.05);peelDebug.renderScene()");
+     assert(await run('peelDebug.fernDispersal.stats.grown>0&&peelDebug.fernDispersal.stats.landed>=180'));
+     const grown=await call('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});await writeFile(`/private/tmp/oxide-fern-spores-grown${mobile?'-mobile':''}.png`,Buffer.from(grown.result.data,'base64'));
+     if(process.argv.includes('--fern-spread-only')){
+       await run("document.getElementById('fern-settings-toggle').click();(()=>{for(const [id,value] of [['fern-fronds',6],['fern-density',25],['fern-simulation-speed',16],['fern-population-limit',16],['fern-wind',50]]){const input=document.getElementById(id);input.value=value;input.dispatchEvent(new Event('input'));}})();document.getElementById('fern-spores-release').click()");
+       assert(await run("peelDebug.fernDispersal.speed===16&&peelDebug.fernDispersal.populationLimit===16&&document.getElementById('fern-simulation-speed-value').value==='16×'"));
+       await run('for(let i=0;i<160;i++)peelDebug.fernDispersal.advance(.05);peelDebug.fernDispersal.setPlaying(false)');
+       assert(await run("peelDebug.fernDispersal.stats.generation>=2&&peelDebug.fernDispersal.stats.colonies===16&&peelDebug.fernDispersal.stats.reproducing>1&&peelDebug.fernDispersal.group.getObjectByName('New fern colonies').children.some(c=>c.getObjectByName('Growing young fern').scale.x>=1)"));
+       await run("document.getElementById('reset-view').click();peelDebug.renderScene()");
+       const spread=await call('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});await writeFile(`/private/tmp/oxide-fern-generations${mobile?'-mobile':''}.png`,Buffer.from(spread.result.data,'base64'));
+     }
+     await run("document.getElementById('fern-cycle-toggle').click()");
+     assert(await run('peelDebug.fernLife.active&&!peelDebug.fernDispersal.group.visible'));
+     await run("document.getElementById('fern-cycle-exit').click()");
+     assert(await run('peelDebug.fernDispersal.group.visible&&peelDebug.fern.group.visible'));
+     await run("document.querySelector('[data-metal=iron]').click()");
+     assert(await run('!peelDebug.fernDispersal.group.visible&&!peelDebug.fern.group.visible&&peelDebug.scene.fog===fernPreviousFog&&peelDebug.camera.far===fernPreviousFar'));
+   }
+   assert.equal(errors.length,0,JSON.stringify(errors));console.log('PASS: parent frond release, drifting spores, landed fern growth and scene transitions on desktop/mobile.');
+ }else if(process.argv.includes('--fern-life-only')){
+   for(const mobile of [false,true]){
+     if(mobile)await call('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
+     await run("document.getElementById('fern-material').click();document.getElementById('fern-cycle-toggle').click()");
+     assert(await run("peelDebug.fernLife.active&&!document.getElementById('fern-cycle-options').hidden&&document.getElementById('fern-options').hidden"));
+     for(let stage=0;stage<7;stage++){
+       await run(`document.querySelector('[data-fern-stage="${stage}"]').click()`);
+       assert.equal(await run('peelDebug.fernLife.stage'),stage);
+       assert(await run("document.getElementById('fern-cycle-description').textContent.length>40&&peelDebug.fernLife.group.children.filter(v=>v.visible).length===1"));
+       if([1,4,6].includes(stage)){
+         await run("document.getElementById('fern-cycle-close').click();peelDebug.renderScene()");
+         const shot=await call('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});await writeFile(`/private/tmp/oxide-fern-life-${stage}${mobile?'-mobile':''}.png`,Buffer.from(shot.result.data,'base64'));
+         await run("document.getElementById('fern-cycle-toggle').click()");
+       }
+     }
+     await run("document.getElementById('fern-cycle-play').click()");await delay(300);
+     assert(await run("peelDebug.fernLife.playing&&peelDebug.fernLife.progress>600"));
+     await run("document.getElementById('fern-cycle-play').click();document.getElementById('fern-cycle-exit').click()");
+     assert(await run("!peelDebug.fernLife.active&&peelDebug.fern.group.visible&&peelDebug.fern.group.scale.y===1"));
+     await run("document.getElementById('fern-cycle-toggle').click();document.querySelectorAll('[data-fern-stage]')[4].click();document.querySelector('[data-metal=iron]').click()");
+     assert(await run("!peelDebug.fernLife.active&&!peelDebug.fernLife.group.visible&&!peelDebug.fern.group.visible&&document.getElementById('fern-cycle-options').hidden"));
+   }
+   assert.equal(errors.length,0,JSON.stringify(errors));console.log('PASS: all seven fern life stages, playback, return and mode switching on desktop/mobile.');
+ }else if(process.argv.includes('--fern-only')){
+   for(const mobile of [false,true]){
+     if(mobile)await call('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
+     await run("document.getElementById('fern-material').click()");
+     assert(await run("peelDebug.fern.group.visible&&!peelDebug.core.parent.visible&&!peelDebug.palm.group.visible&&!peelDebug.oasis.group.visible&&!document.getElementById('fern-controls').hidden&&peelDebug.feathers.stats.count===0"));
+     await run("(()=>{const slider=document.getElementById('fern-density');slider.value=50;slider.dispatchEvent(new Event('input'));document.getElementById('fern-regrow').click();document.getElementById('fern-settings-close').click();document.getElementById('reset-view').click();})()");
+     assert(await run("peelDebug.fern.settings.density===.5&&peelDebug.fern.stats.fronds===18&&document.getElementById('fern-options').hidden"));
+     await run("document.getElementById('toast').classList.remove('show');peelDebug.renderScene()");
+     const shot=await call('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});await writeFile(`/private/tmp/oxide-fern${mobile?'-mobile':''}.png`,Buffer.from(shot.result.data,'base64'));
+     await run("document.getElementById('feather-material').click()");
+     assert(await run("!peelDebug.fern.group.visible&&peelDebug.core.parent.visible&&document.getElementById('fern-controls').hidden"));
+     await run("document.getElementById('fern-material').click();document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}))");
+     assert(await run("document.getElementById('fern-options').hidden&&document.getElementById('layers-view').disabled"));
+     await run("document.querySelector('[data-shape=cube]').click()");
+     assert(await run("!peelDebug.fern.group.visible&&peelDebug.core.parent.visible&&peelDebug.state.material==='metal'"));
+   }
+   assert.equal(errors.length,0,JSON.stringify(errors));console.log('PASS: fern rendering, controls, reset and mode switching on desktop/mobile.');
+ }else if(process.argv.includes('--shadows-only')){
    await checkBuildingShadows({run,call,delay});
    assert.equal(errors.length,0,JSON.stringify(errors));console.log('PASS: tower and cloth ground shadows, sun changes and Oasis/studio restoration on desktop/mobile.');
  }else if(process.argv.includes('--tower-cloth-only')){

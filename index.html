@@ -103,6 +103,50 @@
         <div id="cloth-rope-list" aria-label="Cloth ropes"></div>
         </section>
       </div>
+      <div id="fern-controls" class="exposure-dock feather-controls" hidden>
+        <div class="feather-summary"><span>FERNS</span><span id="fern-count" role="status">18 fronds</span><button id="fern-cycle-toggle" type="button" aria-expanded="false" aria-controls="fern-cycle-options">Life cycle</button><button id="fern-settings-toggle" type="button" aria-expanded="false" aria-controls="fern-options">Settings</button></div>
+        <section id="fern-cycle-options" class="feather-options fern-cycle-options" aria-label="Fern life cycle" hidden>
+          <div class="feather-menu-heading"><h2>Life cycle of a fern</h2><button id="fern-cycle-close" type="button" aria-label="Close life cycle">✕</button></div>
+          <p id="fern-cycle-phase" class="fern-cycle-phase">Sporophyte · 2n</p>
+          <h3 id="fern-cycle-title" aria-live="polite">Mature fern</h3>
+          <p id="fern-cycle-description" class="fern-cycle-description"></p>
+          <p id="fern-cycle-scale" class="feather-flight-help">Plant view</p>
+          <label class="fern-timeline-label" for="fern-cycle-progress">Cycle timeline <span>n = one chromosome set</span></label>
+          <input id="fern-cycle-progress" type="range" min="0" max="699" value="0" aria-label="Fern life cycle timeline">
+          <div class="feather-actions"><button id="fern-cycle-prev" type="button" aria-label="Previous stage">←</button><button id="fern-cycle-play" type="button" aria-pressed="false">Play cycle</button><button id="fern-cycle-next" type="button" aria-label="Next stage">→</button></div>
+          <div class="fern-stage-list" role="group" aria-label="Life cycle stages">
+            <button type="button" data-fern-stage="0" aria-pressed="true"><span>01</span>Mature fern</button>
+            <button type="button" data-fern-stage="1" aria-pressed="false"><span>02</span>Sori</button>
+            <button type="button" data-fern-stage="2" aria-pressed="false"><span>03</span>Spores</button>
+            <button type="button" data-fern-stage="3" aria-pressed="false"><span>04</span>Germination</button>
+            <button type="button" data-fern-stage="4" aria-pressed="false"><span>05</span>Gametophyte</button>
+            <button type="button" data-fern-stage="5" aria-pressed="false"><span>06</span>Fertilization</button>
+            <button type="button" data-fern-stage="6" aria-pressed="false"><span>07</span>Young fern</button>
+          </div>
+          <p class="feather-flight-help">A schematic of a typical fern. Stages use different scales; the timeline does not represent real elapsed time.</p>
+          <div class="feather-actions"><button id="fern-cycle-exit" type="button">Return to fern</button></div>
+          <p class="fern-cycle-source">Learn more: <a href="https://collections.tepapa.govt.nz/topic/2028" target="_blank" rel="noopener noreferrer">Te Papa</a> · <a href="https://kids.britannica.com/students/assembly/view/190714" target="_blank" rel="noopener noreferrer">Britannica diagram</a></p>
+        </section>
+        <section id="fern-options" class="feather-options" aria-label="Fern settings" hidden>
+          <div class="feather-menu-heading"><h2>Fern settings</h2><button id="fern-settings-close" type="button" aria-label="Close fern settings">✕</button></div>
+          <label class="feather-flight-help"><input id="fern-on-object" type="checkbox"> Grow on the object’s surface</label>
+          <p class="feather-flight-help">Arching fronds with finely divided, toothed leaves, grown from the feather generator.</p>
+          <div class="feather-setting"><div><label for="fern-fronds">Crown frond capacity</label><output id="fern-fronds-value" for="fern-fronds">18</output></div><input id="fern-fronds" type="range" min="6" max="32" value="18"></div>
+          <div class="feather-setting"><div><label for="fern-length">Frond length</label><output id="fern-length-value" for="fern-length">1.40</output></div><input id="fern-length" type="range" min="50" max="220" value="140"></div>
+          <div class="feather-setting"><div><label for="fern-density">Leaf density</label><output id="fern-density-value" for="fern-density">70%</output></div><input id="fern-density" type="range" min="25" max="100" value="70"></div>
+          <div class="feather-setting"><div><label for="fern-arch">Arch</label><output id="fern-arch-value" for="fern-arch">65%</output></div><input id="fern-arch" type="range" min="0" max="100" value="65"></div>
+          <div class="feather-setting"><div><label for="fern-wind">Wind</label><output id="fern-wind-value" for="fern-wind">25%</output></div><input id="fern-wind" type="range" min="0" max="100" value="25"></div>
+          <div class="feather-setting"><div><label for="fern-wind-direction">Wind travel direction</label><output id="fern-wind-direction-value" for="fern-wind-direction">25°</output></div><input id="fern-wind-direction" type="range" min="0" max="360" value="25"></div>
+          <label class="feather-flight-help"><input id="fern-variable-wind" type="checkbox" checked> Changing wind · smooth random gusts</label>
+          <p id="fern-wind-live" class="feather-flight-help">Move the mouse over the scene: air blows from the windmill toward the cursor. Farther away means stronger wind. Leaving the scene restores changing wind.</p>
+          <div class="feather-setting"><div><label for="fern-simulation-speed">Simulation speed</label><output id="fern-simulation-speed-value" for="fern-simulation-speed">1×</output></div><input id="fern-simulation-speed" type="range" min="1" max="32" value="1"><p>Speeds up spore flight, growth and every new generation together.</p></div>
+          <div class="feather-setting"><div><label for="fern-population-limit">Population limit</label><output id="fern-population-limit-value" for="fern-population-limit">32</output></div><input id="fern-population-limit" type="range" min="8" max="512" step="8" value="32"><p>Maximum living offspring. Dead plants leave room for new growth.</p></div>
+          <div class="feather-actions"><button id="fern-spores-release" type="button">Release spores</button><button id="fern-spores-pause" type="button" aria-pressed="false">Pause dispersal</button></div>
+          <p id="fern-spores-status" class="feather-flight-help">Spores emerge beneath the fronds and drift to new ground.</p>
+          <p class="feather-flight-help">Golden spores are enlarged for visibility. Each settled spore waits a different amount of time before sprouting. Tiny coiled shoots emerge one at a time from the crown, grow upright, unroll, then spread their leaflets. Opening fronds gradually lower the older leaves. Crowns keep adding and replacing fronds; old leaves brown and droop individually. Only mature crowns with fertile, fully developed fronds release spores. Growth is accelerated and assumes moist ground and successful fertilization after the gametophyte stage. Set wind above zero to carry spores farther.</p>
+          <div class="feather-actions"><button id="fern-regrow" type="button">New variation</button></div>
+        </section>
+      </div>
       <div id="oasis-controls" class="exposure-dock feather-controls" hidden>
         <div class="feather-summary"><span>OASIS</span><span id="oasis-count" role="status">9 palms + 7 young</span><button id="oasis-settings-toggle" type="button" aria-expanded="false" aria-controls="oasis-options"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 17h16M8 4v6M16 14v6"/></svg>Settings</button></div>
         <section id="oasis-options" class="feather-options" aria-label="Oasis settings" hidden>
@@ -145,7 +189,7 @@
           <fieldset class="feather-style"><legend>Feather style</legend><label><input id="feather-style-layered" type="radio" name="feather-style" value="layered"><span>Layered feathers</span></label><label><input id="feather-style-plume" type="radio" name="feather-style" value="plume" checked><span>Original plumes</span></label></fieldset>
           <div class="feather-actions"><button id="feather-preset-1" type="button">Preset 1</button><button id="feather-fly-all" type="button" aria-label="Fly all feathers">Fly all</button><button id="feather-return" type="button">Return feathers</button></div>
           <p class="feather-flight-help">Click a feather or Fly all to fill the scene. Return feathers gently gathers the coat.</p>
-          <div class="feather-setting"><div><label for="feather-density">Mesh density</label><output id="feather-density-value" for="feather-density">4%</output></div><input id="feather-density" type="range" min="0" max="1000" step="1" value="4" aria-valuetext="4%" aria-describedby="feather-density-help feather-count"><p id="feather-density-help">Density follows surface area · no feather count cap</p></div>
+          <div class="feather-setting"><div><label for="feather-density">Mesh density</label><output id="feather-density-value" for="feather-density">63%</output></div><input id="feather-density" type="range" min="0" max="1000" step="1" value="63" aria-valuetext="63%" aria-describedby="feather-density-help feather-count"><p id="feather-density-help">Density follows surface area · no feather count cap</p></div>
           <details id="feather-lsystem-settings" class="feather-surface-settings">
             <summary>L-system <span id="feather-lsystem-summary">2 generations</span></summary>
             <div class="feather-setting"><div><label for="feather-generations">Branch generations</label><output id="feather-generations-value" for="feather-generations">2</output></div><input id="feather-generations" type="range" min="0" max="8" step="1" value="2"><p>How many times the rules are rewritten</p></div>
@@ -165,9 +209,9 @@
             <div class="feather-setting"><div><label for="feather-lift">Feather lift</label><output id="feather-lift-value" for="feather-lift">22°</output></div><input id="feather-lift" type="range" min="10" max="900" step="1" value="22" aria-describedby="feather-lift-help"><p id="feather-lift-help">Low = overlapping layers · 90° = upright</p></div>
             <div class="feather-setting"><div><label for="feather-flowDirection">Plumage direction</label><output id="feather-flowDirection-value" for="feather-flowDirection">0° ↓</output></div><input id="feather-flowDirection" type="range" min="0" max="3600" step="5" value="0"><p>Coordinated flow along the body</p></div>
           </details>
-          <div class="feather-setting"><div><label for="feather-length">Length</label><output id="feather-length-value" for="feather-length">2.00×</output></div><input id="feather-length" type="range" min="0.25" max="20" step="0.05" value="2"></div>
-          <div class="feather-setting"><div><label for="feather-width">Width</label><output id="feather-width-value" for="feather-width">1.90×</output></div><input id="feather-width" type="range" min="0.25" max="20" step="0.05" value="1.9"></div>
-          <div class="feather-setting"><div><label for="feather-detail">Filament density</label><output id="feather-detail-value" for="feather-detail">100%</output></div><input id="feather-detail" type="range" min="15" max="1000" step="1" value="100"></div>
+          <div class="feather-setting"><div><label for="feather-length">Length</label><output id="feather-length-value" for="feather-length">1.60×</output></div><input id="feather-length" type="range" min="0.25" max="20" step="0.05" value="1.6"></div>
+          <div class="feather-setting"><div><label for="feather-width">Width</label><output id="feather-width-value" for="feather-width">2.45×</output></div><input id="feather-width" type="range" min="0.25" max="20" step="0.05" value="2.45"></div>
+          <div class="feather-setting"><div><label for="feather-detail">Filament density</label><output id="feather-detail-value" for="feather-detail">52%</output></div><input id="feather-detail" type="range" min="15" max="1000" step="1" value="52"></div>
           <div class="feather-setting"><div><label for="feather-angle">Branch angle</label><output id="feather-angle-value" for="feather-angle">46°</output></div><input id="feather-angle" type="range" min="5" max="600" step="1" value="46"></div>
           <div class="feather-setting"><div><label for="feather-opacity">Opacity</label><output id="feather-opacity-value" for="feather-opacity">100%</output></div><input id="feather-opacity" type="range" min="0" max="100" step="1" value="100"></div>
           <div class="feather-setting"><div><label for="feather-shadow">Shadows</label><output id="feather-shadow-value" for="feather-shadow">84%</output></div><input id="feather-shadow" type="range" min="0" max="100" step="1" value="84"><p>Soft shadows between feathers and onto the skin</p></div>
@@ -183,6 +227,7 @@
         <button class="material-swatch" data-metal="bronze" aria-pressed="false" aria-label="Bronze"><span class="metal-sample bronze" aria-hidden="true"></span><span>Bronze</span></button>
         <button class="material-swatch" data-metal="aluminum" aria-pressed="false" aria-label="Aluminum"><span class="metal-sample aluminum" aria-hidden="true"></span><span>Aluminum</span></button>
         <button id="feather-material" type="button" class="material-swatch feather-swatch" aria-pressed="false" aria-label="Feathers" aria-expanded="false" aria-controls="feather-options"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 21 17 5M8 17C0 8 12 0 21 3c1 8-3 17-13 14ZM8 17l1-7m3 2 6-1m-3-3 1-4"/></svg><span>Feathers</span></button>
+        <button id="fern-material" type="button" class="material-swatch feather-swatch" aria-pressed="false" aria-label="Ferns" aria-expanded="false" aria-controls="fern-options"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 22 17 3M8 18l-4-5m5 3 7-1m-5-2-4-5m6 3 6-1m-4-2-3-4m4 1 4-1"/></svg><span>Ferns</span></button>
         <button id="oasis-material" type="button" class="material-swatch oasis-swatch" aria-pressed="false" aria-label="Oasis" aria-expanded="false" aria-controls="oasis-options" title="Desert oasis with palm trees"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 21c3-4 4-9 3-14M8 21h9M13 7C9 2 5 4 3 8c4-2 7-2 10-1ZM13 7C13 2 18 2 21 5c-4-1-6 0-8 2ZM13 7c5-2 8 1 9 5-3-3-6-4-9-5ZM13 7C9 6 7 9 7 13c2-3 4-5 6-6Z"/></svg><span>Oasis</span></button>
         <button id="cloth-material" type="button" class="material-swatch cloth-swatch" aria-pressed="false" aria-label="Cloth" title="Drape ivory cloth over this shape"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3c4 3 10-2 14 1l2 16c-5-3-12 3-18 0L5 3Z"/><path d="M9 5 7 19M14 5l1 14M18 7l1 10"/></svg><span>Cloth</span></button>
         <button id="paint-toggle" class="material-swatch paint-bucket selected" aria-label="Paint options" aria-expanded="false" aria-controls="paint-options" title="Choose paint colour">

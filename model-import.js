@@ -46,7 +46,7 @@ export function createModelImporter({ scene, uniforms, state, featherMaterial, o
       current.action = current.mixer.clipAction(current.clips[index]);
       current.action.reset().play(); current.action.paused = reducedMotion;
     }
-    $('animation-toggle').disabled = state.material==='cloth'||!current.action;
+    $('animation-toggle').disabled = (state.material==='cloth'||state.material==='fern')||!current.action;
     $('animation-toggle').textContent = current.action && !current.action.paused ? 'Pause animation' : 'Play animation';
     current.mixer.update(0); invalidate();
   }
@@ -71,13 +71,13 @@ export function createModelImporter({ scene, uniforms, state, featherMaterial, o
   function configurePeeling() {
     current.peeling?.dispose(); current.peeling=null;
     const {root,slots,originals}=current;
-    $('model-animation').disabled=state.material==='cloth';
-    $('animation-toggle').disabled=state.material==='cloth'||!current.action;
-    if(state.material==='cloth'){
+    $('model-animation').disabled=(state.material==='cloth'||state.material==='fern');
+    $('animation-toggle').disabled=(state.material==='cloth'||state.material==='fern')||!current.action;
+    if((state.material==='cloth'||state.material==='fern')){
       root.traverse(mesh=>{if(originals.has(mesh))mesh.material=originals.get(mesh);});
       for(const slot of slots)if(slot.select)slot.select.disabled=true;
       $('layers-view').disabled=true;
-      $('model-peeling-note').textContent='Cloth drapes over a still pose. Use Redrape to drop a fresh sheet.';
+      $('model-peeling-note').textContent=state.material==='fern'?'Ferns root on the model’s still pose and grow, release spores and renew over its surface.':'Cloth drapes over a still pose. Use Redrape to drop a fresh sheet.';
       return;
     }
     for(const slot of slots)if(slot.select)slot.select.disabled=state.modelAppearance==='original'||state.material==='feathers';
@@ -267,7 +267,7 @@ export function createModelImporter({ scene, uniforms, state, featherMaterial, o
     setAppearance() { if(current){configurePeeling();invalidate();} },
     update(dt) {
       let dirty=current?.peeling?.update(dt)??false;
-      if(state.material!=='cloth'&&current?.action&&!current.action.paused) { current.mixer.update(dt);dirty=true; }
+      if(state.material!=='cloth'&&state.material!=='fern'&&current?.action&&!current.action.paused) { current.mixer.update(dt);dirty=true; }
       return dirty;
     }
   };

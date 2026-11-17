@@ -65,6 +65,7 @@
 .specimen-dock .age-labels button{font-size:7px;padding:2px 3px}
 .specimen-dock .material-picker{padding:5px 6px;gap:4px;border-radius:8px;background:#20261fea}
 .specimen-dock .picker-row{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:4px}
+.specimen-dock .picker-row[aria-label="Choose material"]{grid-template-columns:none;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr)}
 .specimen-dock .shape-row{padding-top:4px}
 .specimen-dock .material-swatch{min-width:0;padding:2px;gap:2px;font-size:7px;border-radius:5px}
 .specimen-dock .metal-sample,.specimen-dock .paint-bucket svg{width:20px;height:20px}
@@ -120,7 +121,7 @@ html,body{width:100%;height:100%;overflow:hidden}
 
 .specimen-dock .feather-swatch svg,.specimen-dock .oasis-swatch svg{width:20px;height:20px;color:#e9c28b}
 .specimen-dock .feather-controls{padding:10px 14px;z-index:5}
-.specimen-dock.feather-menu-open,.specimen-dock.oasis-menu-open{z-index:13}
+.specimen-dock.fern-menu-open,.specimen-dock.feather-menu-open,.specimen-dock.oasis-menu-open{z-index:13}
 .feather-summary{display:flex;align-items:center;gap:14px;font:9px var(--mono);color:#adb6a0}
 .feather-summary>span:first-child{letter-spacing:1px}
 .feather-summary>button{margin-left:auto;display:flex;align-items:center;gap:6px;padding:6px 8px;border:1px solid #59604b;border-radius:5px;font:10px var(--sans);color:var(--text)}
@@ -264,3 +265,22 @@ html,body{width:100%;height:100%;overflow:hidden}
 #palm-sun-settings{border:0;padding:0;margin:0;min-width:0}
 #palm-sun-settings:disabled,#palm-sun-reset:disabled{opacity:.45}
 #palm-sun-reset:disabled{cursor:default}
+
+.specimen-dock.fern-cycle-open{z-index:13}
+.fern-cycle-options{width:320px}
+.fern-cycle-phase{font:10px var(--mono);color:#e9c28b;letter-spacing:.5px}
+.fern-cycle-options h3{font:500 18px var(--sans);margin:12px 0 8px}
+.fern-cycle-description{font:12px/1.65 var(--sans);color:var(--text)}
+.fern-timeline-label{display:flex;justify-content:space-between;font:10px var(--sans);margin-bottom:10px}
+.fern-timeline-label span{color:var(--muted);font-size:9px}
+#fern-cycle-progress{width:100%;margin-bottom:14px}
+.fern-stage-list{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin:16px 0}
+.fern-stage-list button{display:flex;align-items:center;gap:8px;text-align:left;padding:8px;border:1px solid var(--line);border-radius:5px;font:10px var(--sans);color:var(--muted)}
+.fern-stage-list button span{font:9px var(--mono);color:#e9c28b}
+.fern-stage-list button[aria-pressed=true]{background:#c4b68a15;border-color:#c4b68a;color:var(--text)}
+.fern-cycle-source{font:9px var(--sans);color:var(--muted);margin:14px 0 0}
+.fern-cycle-source a{color:#e9c28b;text-decoration:underline}
+#fern-controls .feather-summary{gap:8px;flex-wrap:wrap}
+#fern-count{font-size:9px;color:#e9c28b}
+#fern-cycle-toggle{margin-left:auto}
+#fern-settings-toggle{margin-left:0}
