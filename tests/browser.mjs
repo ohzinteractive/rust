@@ -8,28 +8,146 @@ import {checkMazeFeathers} from './maze-feathers-browser.mjs';
 import {checkCloth,checkClothRopes,checkDelayedWrapping,checkHorseClothContacts} from './cloth-browser.mjs';
 import {checkMazeMaps,checkCourtyardShortcut} from './maze-maps-browser.mjs';
 import {checkDesertSky} from './desert-sky-browser.mjs';
+import {checkKelp} from './kelp-browser.mjs';
+import {checkKelpFish} from './kelp-fish-browser.mjs';
+import {checkKelpAttractor} from './kelp-attractor-browser.mjs';
+import {checkKelpDrop} from './kelp-drop-browser.mjs';
+import {checkKelpLightingSliders} from './kelp-lighting-sliders-browser.mjs';
+import {checkKelpLeafPhysics} from './kelp-leaf-physics-browser.mjs';
+import {checkKelpAtmosphere} from './kelp-atmosphere-browser.mjs';
+import {checkKelpPolish} from './kelp-polish-browser.mjs';
+import {checkKelpSurface} from './kelp-surface-browser.mjs';
+import {checkKelpLeafMotion} from './kelp-leaf-motion-browser.mjs';
+import {checkKelpLighting} from './kelp-lighting-browser.mjs';
+import {checkKelpRoaming} from './kelp-roaming-browser.mjs';
 import {checkTowerCloth} from './tower-cloth-browser.mjs';
 import {checkBuildingShadows} from './desert-shadows-browser.mjs';
 const root=fileURLToPath(new URL('../',import.meta.url)).replace(/\/$/,'');
-const server=createServer(async(req,res)=>{try {const path=decodeURIComponent(new URL(req.url,'http://localhost').pathname); let data=await readFile(root+(path==='/'?'/index.html':path));if(path==='/app.js')data=data.toString()+'\nwindow.peelDebug={models,state,scene,get cloth(){return cloth;},specimenCloth,towerCloth,fern,fernLife,fernDispersal,palm,oasis,mirage,renderScene,feathers,core,surface,renderer,camera,controls,featherRenderer,mazeNavigation,get idle(){return !renderDirty}};';res.setHeader('Content-Type',path.endsWith('.js')?'text/javascript':path.endsWith('.css')?'text/css':path.endsWith('.woff2')?'font/woff2':'text/html');res.end(data);}catch{res.writeHead(404);res.end();}});
+const server=createServer(async(req,res)=>{try {const path=decodeURIComponent(new URL(req.url,'http://localhost').pathname); let data=await readFile(root+(path==='/'?'/index.html':path));if(path==='/app.js')data=data.toString()+'\nwindow.peelDebug={models,state,scene,get cloth(){return cloth;},specimenCloth,towerCloth,kelp,kelpFish,kelpAttractor,kelpEnvironment,fern,fernLife,fernDispersal,palm,oasis,mirage,renderScene,feathers,core,surface,renderer,camera,controls,featherRenderer,mazeNavigation,get idle(){return !renderDirty}};';res.setHeader('Content-Type',path.endsWith('.js')?'text/javascript':path.endsWith('.css')?'text/css':path.endsWith('.woff2')?'font/woff2':'text/html');res.end(data);}catch{res.writeHead(404);res.end();}});
 await new Promise(r=>server.listen(8765,'127.0.0.1',r));
 const browser=spawn(process.env.BROWSER_PATH || '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser',['--headless','--no-first-run','--no-default-browser-check','--disable-background-networking','--use-angle=swiftshader','--enable-unsafe-swiftshader','--remote-debugging-port=9225','--user-data-dir=/private/tmp/oxide-qa-browser','about:blank'],{stdio:'ignore'});
-let ws;
+let ws;let errors=[];
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 try{
  let tabs;for(let i=0;i<50;i++){try{tabs=await(await fetch('http://127.0.0.1:9225/json')).json();break;}catch{await delay(200);}}
  assert(tabs,'Browser failed to start');
  ws=new WebSocket(tabs.find(t=>t.type==='page').webSocketDebuggerUrl);await new Promise(r=>ws.addEventListener('open',r,{once:true}));
- let id=0;const pending=new Map(),errors=[];
+ let id=0;const pending=new Map();errors=[];
  ws.addEventListener('message',e=>{const m=JSON.parse(e.data);if(m.id){pending.get(m.id)?.(m);pending.delete(m.id);}if(m.method==='Runtime.consoleAPICalled'&&m.params.type==='error')errors.push(m.params.args.map(a=>a.value??a.description));if(m.method==='Runtime.exceptionThrown')errors.push(m.params.exceptionDetails);if(m.method==='Log.entryAdded'&&m.params.entry.level==='error')errors.push(m.params.entry);});
  const call=(method,params={})=>new Promise(r=>{pending.set(++id,r);ws.send(JSON.stringify({id,method,params}));});
  const run=async expression=>{const r=await call('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(r.result.exceptionDetails)throw Error(JSON.stringify(r.result.exceptionDetails));return r.result.result.value;};
  await call('Network.enable');await call('Network.setCacheDisabled',{cacheDisabled:true});
- await call('Runtime.enable');await call('Log.enable');await call('Page.enable');await call('Page.bringToFront');await call('Emulation.setDeviceMetricsOverride',{width:1050,height:850,deviceScaleFactor:1,mobile:false});await call('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'reduce'}]});await call('Page.addScriptToEvaluateOnNewDocument',{source:`window.drawCount=0;for(const name of ['drawElements','drawArrays']){const original=WebGL2RenderingContext.prototype[name];WebGL2RenderingContext.prototype[name]=function(...args){window.drawCount++;return original.apply(this,args);};}`});await call('Page.navigate',{url:'http://127.0.0.1:8765/'});
+ await call('Runtime.enable');await call('Log.enable');await call('Page.enable');await call('Page.bringToFront');await call('Emulation.setDeviceMetricsOverride',{width:1050,height:850,deviceScaleFactor:1,mobile:false});await call('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:process.argv.includes('--kelp-drop-only')?'no-preference':'reduce'}]});await call('Page.addScriptToEvaluateOnNewDocument',{source:`window.drawCount=0;for(const name of ['drawElements','drawArrays']){const original=WebGL2RenderingContext.prototype[name];WebGL2RenderingContext.prototype[name]=function(...args){window.drawCount++;return original.apply(this,args);};}`});await call('Page.navigate',{url:'http://127.0.0.1:8765/'});
  let loaded=false;for(let i=0;i<100;i++){await delay(200);loaded=await run("document.readyState==='complete'&&!document.getElementById('loading')");if(loaded||errors.length)break;}
  assert.equal(errors.length,0,JSON.stringify(errors));assert(loaded,'Scene did not finish loading');
  assert(await run("document.getElementById('webgl-error').hidden"));
- if(process.argv.includes('--fern-floor-only')){
+ if(process.argv.includes('--kelp-surface-only')){
+   await checkKelpSurface({run,call});assert.equal(errors.length,0,JSON.stringify(errors));
+ }else if(process.argv.includes('--kelp-leaf-motion-only')){
+   await checkKelpLeafMotion({run,call});assert.equal(errors.length,0,JSON.stringify(errors));
+ }else if(process.argv.includes('--kelp-rim-only')){
+   await checkKelpPolish({run,call,fishOnly:true});assert.equal(errors.length,0,JSON.stringify(errors));
+ }else if(process.argv.includes('--kelp-polish-only')){
+   await checkKelpPolish({run,call});assert.equal(errors.length,0,JSON.stringify(errors));
+ }else if(process.argv.includes('--kelp-look-only')){
+   const tissue=await run("import('./tests/kelp-look-gpu.js').then(m=>m.checkLeafTransmission(peelDebug.renderer))");
+   assert(tissue.thin[0]>tissue.thin[1]&&tissue.thin[1]>tissue.thin[2]*2&&tissue.veinRatio<.45&&tissue.shadow.every(v=>v===0),JSON.stringify(tissue));
+   await checkKelpLeafPhysics({run,call});
+   assert(await run('peelDebug.kelp.stats.broadBlades>50&&peelDebug.kelp.stats.narrowBlades>30&&peelDebug.kelp.stats.shortPlants>4'));
+   assert.equal(errors.length,0,JSON.stringify(errors));console.log('PASS: amber leaf transmission, darker veins, foliage variation and turquoise-water rendering.',JSON.stringify(tissue));
+ }else if(process.argv.includes('--kelp-atmosphere-only')){
+   await checkKelpAtmosphere({run,call});assert.equal(errors.length,0,JSON.stringify(errors));
+ }else if(process.argv.includes('--kelp-leaf-physics-only')){
+   await checkKelpLeafPhysics({run,call});assert.equal(errors.length,0,JSON.stringify(errors));
+ }else if(process.argv.includes('--kelp-contact-only')){
+   await run(`document.getElementById('kelp-material').click();peelDebug.kelp.setPlaying(false);
+     document.querySelector('[data-shape=cube]').click();peelDebug.kelpFish.setVisible(false);
+     peelDebug.controls.enableDamping=false;peelDebug.controls.target.set(0,-.55,2.5);
+     peelDebug.kelpEnvironment.setLightingSettings({ambient:.2});
+     peelDebug.camera.position.set(.25,2.6,11.5);peelDebug.controls.update();peelDebug.renderScene();`);
+   const shot=await call('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});
+   await writeFile('/private/tmp/oxide-kelp-contact'+(process.argv.includes('--before')?'-before':'-after')+'.png',Buffer.from(shot.result.data,'base64'));
+   assert.equal(errors.length,0,JSON.stringify(errors));console.log('PASS: close-up cube contact renders without shader errors.');
+ }else if(process.argv.includes('--kelp-lighting-sliders-only')){
+   await checkKelpLightingSliders({run,call});assert.equal(errors.length,0,JSON.stringify(errors));
+ }else if(process.argv.includes('--kelp-drop-only')){
+   await checkKelpDrop({run,call});assert.equal(errors.length,0,JSON.stringify(errors));
+ }else if(process.argv.includes('--kelp-volumetrics-only')){
+   const result=await run(`import('./tests/kelp-volumetrics-gpu.js').then(m=>m.checkKelpVolumetricShadows({renderer:peelDebug.renderer}))`);
+   assert(result.changed>40&&result.maxDelta>4,'Kelp shadow map must change the scattered light: '+JSON.stringify(result));
+   assert(result.rawChanged>40&&result.rawMaxDelta>.001,'Shadows must change raw scattered radiance before any compositing: '+JSON.stringify(result));
+   assert(result.spectralRatios[0]+.04<result.spectralRatios[1]&&result.spectralRatios[1]<=result.spectralRatios[2]+.01,'Water must absorb red faster than green and blue: '+JSON.stringify(result));
+   const shot=await call('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});await writeFile('/private/tmp/oxide-kelp-volume-shadow.png',Buffer.from(shot.result.data,'base64'));
+   assert.equal(errors.length,0,JSON.stringify(errors));console.log('PASS: shadowed volumetric sunlight and wavelength-dependent water absorption.',JSON.stringify(result));
+ }else if(process.argv.includes('--kelp-beauty-only')){
+   await run('document.getElementById("kelp-material").click();peelDebug.kelp.setPlaying(false);peelDebug.kelp.rebuild({seed:7420});peelDebug.kelpFish.reset();peelDebug.renderScene()');
+   for(const mobile of [false,true]){
+     if(mobile){await call('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await delay(300);await run('document.getElementById("reset-view").click()');}
+     await run('peelDebug.renderScene()');
+     const shot=await call('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});await writeFile(`/private/tmp/oxide-kelp-beauty${mobile?'-mobile':''}.png`,Buffer.from(shot.result.data,'base64'));
+   }
+   assert.equal(errors.length,0,JSON.stringify(errors));console.log('PASS: desktop and mobile kelp beauty views render without shader errors.');
+ }else if(process.argv.includes('--kelp-seabed-only')){
+   await run(`window.seabedGround=peelDebug.scene.children.find(o=>o.isMesh&&o.receiveShadow&&o.geometry.parameters?.width===160);
+     window.studioFloorGeometry=seabedGround.geometry;document.getElementById('kelp-material').click();peelDebug.kelp.setPlaying(false);
+     document.getElementById('horse-shape').click();void 0`);
+   for(let i=0;i<100;i++){await delay(100);if(await run('!document.getElementById("horse-shape").disabled'))break;}
+   assert(await run('seabedGround.geometry!==studioFloorGeometry&&seabedGround.geometry.attributes.position.count>40000&&seabedGround.geometry.attributes.seabedSediment.array.some(v=>v>.7)'),'Relief and contact sediment replace the flat kelp floor');
+   await call('Emulation.setDeviceMetricsOverride',{width:1600,height:900,deviceScaleFactor:1,mobile:false});await delay(300);
+   await run('document.getElementById("reset-view").click();peelDebug.kelpFish.setSettings({feeding:0});peelDebug.kelp.setPlaying(true);for(let i=0;i<200;i++){peelDebug.kelp.advance(.05);peelDebug.kelpFish.advance(.05);}peelDebug.kelp.setPlaying(false);peelDebug.renderScene()');
+   const capture=async name=>{const shot=await call('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});await writeFile('/private/tmp/'+name+'.png',Buffer.from(shot.result.data,'base64'));};
+   await capture('oxide-kelp-seabed-wide');
+   await run('peelDebug.controls.enableDamping=false;peelDebug.controls.target.set(0,peelDebug.kelp.group.position.y+.01,4.5);peelDebug.camera.position.copy(peelDebug.controls.target).add({x:.9,y:.85,z:2.1});peelDebug.controls.update();peelDebug.renderScene()');
+   await capture('oxide-kelp-sand-detail');
+   await run('peelDebug.kelp.getStemBase(0,peelDebug.controls.target);peelDebug.controls.target.y-=.25;peelDebug.camera.position.copy(peelDebug.controls.target).add({x:1.5,y:1,z:2.5});peelDebug.controls.update();peelDebug.renderScene()');
+   await capture('oxide-kelp-stone-detail');
+   await call('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await delay(300);
+   await run('document.getElementById("reset-view").click();peelDebug.renderScene()');await capture('oxide-kelp-seabed-mobile');
+   await run('document.querySelector("[data-metal=iron]").click();peelDebug.renderScene()');
+   assert(await run('seabedGround.geometry===studioFloorGeometry'),'Other materials restore the original floor geometry');
+   assert.equal(errors.length,0,JSON.stringify(errors));console.log('PASS: detailed seabed, rock contact sediment, close-up/wide/mobile rendering and floor restoration.');
+ }else if(process.argv.includes('--kelp-holdfast-only')){
+   await run(`document.getElementById('kelp-material').click();
+     peelDebug.kelp.setPlaying(false);peelDebug.kelpFish.setVisible(false);peelDebug.controls.enableDamping=false;
+     peelDebug.kelp.getStemBase(0,peelDebug.controls.target);
+     peelDebug.camera.position.copy(peelDebug.controls.target).add({x:1.3,y:.9,z:2.0});peelDebug.controls.update();
+     window.anchorBefore=peelDebug.controls.target.toArray();peelDebug.renderer.shadowMap.needsUpdate=true;peelDebug.renderScene();`);
+   const shot=await call('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});await writeFile('/private/tmp/oxide-kelp-holdfast.png',Buffer.from(shot.result.data,'base64'));
+   await run('peelDebug.kelp.setPlaying(true);for(let i=0;i<50;i++)peelDebug.kelp.advance(.1);peelDebug.kelp.setPlaying(false);peelDebug.renderer.shadowMap.needsUpdate=true;peelDebug.renderScene()');
+   assert(await run('peelDebug.kelp.getObstacles().capsules[0].a.toArray().every((x,i)=>Math.abs(x-anchorBefore[i])<1e-7)'),'Attachment stays fixed while the kelp sways');
+   assert.equal(errors.length,0,JSON.stringify(errors));console.log('PASS: stone-mounted holdfasts, fixed anchors and shared visible/shadow deformation.');
+ }else if(process.argv.includes('--kelp-stem-only')){
+   await run(`document.getElementById('kelp-material').click();
+     peelDebug.kelp.setPlaying(false);peelDebug.kelp.rebuild({strands:4,current:0});peelDebug.kelpFish.setVisible(false);
+     peelDebug.controls.enableDamping=false;
+     window.stemFocus=peelDebug.kelp.getStemPosition(0,1.8,peelDebug.controls.target);
+     peelDebug.camera.position.copy(stemFocus).add({x:2.4,y:.2,z:4.2});peelDebug.controls.update();
+     peelDebug.renderer.shadowMap.needsUpdate=true;peelDebug.renderScene();`);
+   const shot=await call('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});await writeFile('/private/tmp/oxide-kelp-stem.png',Buffer.from(shot.result.data,'base64'));
+   assert.equal(errors.length,0,JSON.stringify(errors));console.log('PASS: continuous curved kelp stem with spiral floats and blades renders without shader errors.');
+ }else if(process.argv.includes('--kelp-roaming-only')){
+   await checkKelpRoaming({run,call,delay});assert.equal(errors.length,0,JSON.stringify(errors));
+ }else if(process.argv.includes('--kelp-lighting-only')){
+   await checkKelpLighting({run,call,delay,prefix:process.argv.includes('--before')?'before':'after'});assert.equal(errors.length,0,JSON.stringify(errors));
+ }else if(process.argv.includes('--kelp-attractor-only')){
+   await checkKelpAttractor({run,call,delay});assert.equal(errors.length,0,JSON.stringify(errors));
+ }else if(process.argv.includes('--kelp-fish-scales-only')){
+   await run(`document.getElementById('kelp-material').click();peelDebug.kelp.setPlaying(false);peelDebug.kelpFish.setSettings({feeding:0});
+     peelDebug.controls.enableDamping=false;window.scaleFish=peelDebug.kelpFish.inspectFish(0);
+     peelDebug.controls.target.fromArray(scaleFish.position);peelDebug.camera.position.copy(peelDebug.controls.target).add({x:.12,y:.10,z:1.2});
+     peelDebug.controls.update();peelDebug.renderer.shadowMap.needsUpdate=true;peelDebug.renderScene();`);
+   for(const angle of [0,1]){
+     if(angle)await run('peelDebug.camera.position.copy(peelDebug.controls.target).add({x:.65,y:.22,z:.95});peelDebug.controls.update();peelDebug.renderScene()');
+     const shot=await call('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});await writeFile(`/private/tmp/oxide-kelp-fish-scales-${angle}.png`,Buffer.from(shot.result.data,'base64'));
+   }
+   await run('document.getElementById("reset-view").click();peelDebug.kelpFish.setSettings({count:500,feeding:0});peelDebug.kelp.setPlaying(true);for(let i=0;i<20;i++){peelDebug.kelp.advance(.05);peelDebug.kelpFish.advance(.05);}peelDebug.kelp.setPlaying(false);peelDebug.renderScene()');
+   const school=await call('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});await writeFile('/private/tmp/oxide-kelp-shiny-school.png',Buffer.from(school.result.data,'base64'));
+   assert.equal(errors.length,0,JSON.stringify(errors));console.log('PASS: scale shader, close-up viewing angles and 500 shiny fish render without errors.');
+ }else if(process.argv.includes('--kelp-fish-only')){
+   await checkKelpFish({run,call,delay});assert.equal(errors.length,0,JSON.stringify(errors));
+ }else if(process.argv.includes('--kelp-only')){
+   await checkKelp({run,call,delay});assert.equal(errors.length,0,JSON.stringify(errors));
+ }else if(process.argv.includes('--fern-floor-only')){
    await run("document.getElementById('fern-material').click();(()=>{for(const [id,value] of [['fern-fronds',6],['fern-density',25]]){const input=document.getElementById(id);input.value=value;input.dispatchEvent(new Event('input'));}})();document.getElementById('fern-spores-release').click();peelDebug.fernDispersal.setVariableWind(false);peelDebug.fernDispersal.setWind(0);peelDebug.fernDispersal.setPopulationLimit(1);peelDebug.fernDispersal.setSpeed(32);peelDebug.controls.enableDamping=false;peelDebug.controls.target.set(0,-1.45,0);peelDebug.camera.position.set(2,.1,3);peelDebug.controls.update();peelDebug.fernDispersal.setPlaying(false)");
    const pose=await run('JSON.stringify([peelDebug.camera.position.toArray(),peelDebug.controls.target.toArray()])');
    const result=await run("(()=>{const sim=peelDebug.fernDispersal;sim.setPlaying(true);for(let i=0;i<1000;i++)sim.advance(.05);sim.setPlaying(false);peelDebug.renderScene();return {stats:sim.stats,height:sim.floorHeight(0,0),litter:sim.group.getObjectByName('Persistent fallen fern fronds').count};})()");
@@ -922,4 +1040,4 @@ try{
  console.log('PASS: breeze animation and direction, calm rendering, feather settings, reset, stable roots, materials, density, animation, GLB upload, peeling and mobile layout.');
 
  }
-} finally {ws?.close();browser.kill();server.close();}
+} catch(error) {if(errors.length)console.error(JSON.stringify(errors));throw error;} finally {ws?.close();browser.kill();server.close();}

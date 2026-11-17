@@ -1,6 +1,11 @@
 import {createFernSurface} from './fern-surface.js';
 import {pointerFernWind} from './fern-wind.js';
 import {createFernStage} from './fern-stage.js';
+import {createKelp} from './kelp.js';
+import {createKelpEnvironment} from './kelp-environment.js';
+import {createKelpSunlight} from './kelp-lighting.js';
+import {createKelpFish} from './kelp-fish.js';
+import {createKelpAttractor} from './kelp-attractor.js';
 import * as THREE from 'three';
 import { createModelImporter } from './model-import.js';
 import { OrbitControls } from './vendor/OrbitControls.js';
@@ -118,6 +123,16 @@ const physics=createFlakePhysics({floorY,cubePosition:specimen.position,cubeQuat
 const surface=new PeelingSurface({parent:specimen,material:coatingMat,physics,state});
 const feathers=createFeatherSurface();
 const fern=createFern({scene,floorY});
+const kelpSunlight=createKelpSunlight();
+const kelp=createKelp({scene,floorY,sun:key,sunlight:kelpSunlight});
+const kelpFish=createKelpFish({scene,kelp,floorY,sun:key,sunlight:kelpSunlight});
+const kelpAttractor=createKelpAttractor({scene,floorY,height:kelp.settings.height,sunlight:kelpSunlight,reducedMotion,
+  getFloorHeight:(x,z)=>kelpEnvironment.floorHeight(x,z),getSurfaceHeight:()=>kelpEnvironment.surfaceY,onImpact:impact=>kelpEnvironment.impact(impact),onReset:()=>kelpEnvironment.clearImpact()});
+kelpFish.setAttractor(kelpAttractor);
+let kelpSavedView=null;
+let kelpShot=null;
+function stopKelpShot(){kelpShot=null;$('kelp-surface').textContent=camera.position.y>kelpEnvironment.surfaceY-.25?'Dive underwater':'Rise to surface';$('kelp-surface').setAttribute('aria-pressed','false');$('kelp-camera-push').textContent='Cinematic push';$('kelp-camera-push').setAttribute('aria-pressed','false');}
+controls.addEventListener('start',stopKelpShot);
 const fernSubstrate=new THREE.MeshStandardMaterial({color:0x283026,roughness:1});
 const fernSettings={...defaultFernSettings};
 let fernWindDirection=25;
@@ -160,6 +175,8 @@ const shadowTexture=new THREE.CanvasTexture(shadowCanvas);
 const shadow=new THREE.Mesh(new THREE.PlaneGeometry(5.5,5.5),new THREE.MeshBasicMaterial({map:shadowTexture,transparent:true,depthWrite:false,opacity:.5}));
 shadow.rotation.x=-Math.PI/2;shadow.position.y=floorY+.002;scene.add(shadow);
 const fernStage=createFernStage({scene,ground,key,rim,fill,skyLight});
+const kelpEnvironment=createKelpEnvironment({scene,ground,shadow,key,rim,fill,skyLight,renderer,focus:kelpAttractor,kelp,fish:kelpFish,sunlight:kelpSunlight});
+kelpFish.setFloorHeight((x,z)=>kelpEnvironment.floorHeight(x,z));
 const desert=createDesertEnvironment({scene,renderer,ground,shadow,skyLight,key,rim,fill,sunSettings:state.palmView});
 const desertLandmark=createDesertLandmark({scene,floorY,notify:toast,invalidate(){oasis.invalidateReflection();renderDirty=true;renderer.shadowMap.needsUpdate=true;}});
 const mirage=createDesertMirage({renderer,landmark:desertLandmark.group,reducedMotion});
@@ -169,6 +186,7 @@ let desertCamera=null,buildingViewLoading=false;
 const models=createModelImporter({scene,uniforms,state,reducedMotion,notify:toast,featherMaterial:feathers.substrate,
   invalidate(){if(state.material==='feathers')feathers.update();renderDirty=true;renderer.shadowMap.needsUpdate=true;},
   onActivate(name,peeling){
+    if(state.material==='kelp')state.material='metal';
     if(state.material==='fern')$('fern-on-object').checked=true;
     state.palm=false;
     mazeNavigation?.exit();$('maze-enter').hidden=true;
@@ -252,14 +270,14 @@ function setAutoRotation(value){
 }
 setAutoRotation(state.rotate);
 $('rotate').onclick=()=>setAutoRotation(!state.rotate);
-$('reset-view').onclick=()=>{if(state.material==='fern')frameFern();else if(palm.group.visible){if(state.palmSceneView==='building'&&desert.enabled)setPalmSceneView('building');else framePalmScene();}else controls.reset();controls.autoRotate=state.rotate;toast('View reset');};
+$('reset-view').onclick=()=>{stopKelpShot();if(state.material==='kelp')frameKelp();else if(state.material==='fern')frameFern();else if(palm.group.visible){if(state.palmSceneView==='building'&&desert.enabled)setPalmSceneView('building');else framePalmScene();}else controls.reset();controls.autoRotate=state.rotate;toast('View reset');};
 function syncViewMode(){
   const palmMode=state.material==='feathers'&&!!state.palm&&!models.active;
   $('surface-view').parentElement.setAttribute('aria-label',palmMode?'Scene view':'Material view');
   $('surface-view').textContent=palmMode?'Building':'Surface';$('layers-view').textContent=palmMode?'Oasis':'Layers';
   $('surface-view').disabled=palmMode&&(!desert.enabled||buildingViewLoading);
   $('surface-view').setAttribute('aria-busy',String(palmMode&&buildingViewLoading));
-  $('layers-view').disabled=!palmMode&&(state.material==='fern'||state.material==='cloth'||state.material==='feathers'||(models.active&&!models.peelingStats));
+  $('layers-view').disabled=!palmMode&&(state.material==='kelp'||state.material==='fern'||state.material==='cloth'||state.material==='feathers'||(models.active&&!models.peelingStats));
   const first=palmMode?state.palmSceneView==='building':!desiredExplode;
   for(const [id,active] of [['surface-view',first],['layers-view',!first]]){$(id).classList.toggle('selected',active);$(id).setAttribute('aria-pressed',String(active));}
 }
@@ -306,6 +324,7 @@ function syncMazeMapButton(){
 syncMazeMapButton();
 $('copy-settings').onclick=async()=>{
   const settings={...state,exploded:desiredExplode,colors:currentColors,
+    kelp:state.material==='kelp'?{...kelp.settings,playing:kelp.playing,fish:kelpFish.settings}:undefined,
     model:models.active?{sample:models.sampleKey,name:$('model-name').textContent,animation:Number($('model-animation').value)}:null,
     camera:{position:camera.position.toArray(),target:controls.target.toArray()},
     specimenRotation:specimen.rotation.toArray()};
@@ -325,19 +344,22 @@ function lightPaintColor(base){
 }
 
 function updateMetalFinish(){
+  syncShapeButtons();
   const profile=metalPresets[state.metal];
-  const fernMode=state.material==='fern',featherMode=state.material==='feathers',clothMode=state.material==='cloth',palmMode=featherMode&&!!state.palm&&!models.active;
-  document.querySelectorAll('[data-metal]').forEach(button=>{const active=!fernMode&&!featherMode&&!clothMode&&button.dataset.metal===state.metal;button.classList.toggle('selected',active);button.setAttribute('aria-pressed',String(active));});
+  const kelpMode=state.material==='kelp',fernMode=state.material==='fern',featherMode=state.material==='feathers',clothMode=state.material==='cloth',palmMode=featherMode&&!!state.palm&&!models.active;
+  document.querySelectorAll('[data-metal]').forEach(button=>{const active=!kelpMode&&!fernMode&&!featherMode&&!clothMode&&button.dataset.metal===state.metal;button.classList.toggle('selected',active);button.setAttribute('aria-pressed',String(active));});
+  $('kelp-material').classList.toggle('selected',kelpMode);$('kelp-material').setAttribute('aria-pressed',String(kelpMode));
+  $('kelp-controls').hidden=!kelpMode;if(!kelpMode)showKelpOptions(false);
   $('fern-material').classList.toggle('selected',fernMode);$('fern-material').setAttribute('aria-pressed',String(fernMode));
   $('fern-controls').hidden=!fernMode;if(!fernMode)showFernOptions(false);
   $('feather-material').classList.toggle('selected',featherMode&&!palmMode);
   $('feather-material').setAttribute('aria-pressed',String(featherMode&&!palmMode));
   $('oasis-material').classList.toggle('selected',palmMode);$('oasis-material').setAttribute('aria-pressed',String(palmMode));
-  $('paint-toggle').classList.toggle('selected',!fernMode&&!featherMode&&!clothMode&&state.painted&&(!models.active||state.modelAppearance==='paint'));
+  $('paint-toggle').classList.toggle('selected',!kelpMode&&!fernMode&&!featherMode&&!clothMode&&state.painted&&(!models.active||state.modelAppearance==='paint'));
   $('cloth-material').classList.toggle('selected',clothMode);$('cloth-material').setAttribute('aria-pressed',String(clothMode));
   $('cloth-controls').hidden=!clothMode;
   if(!clothMode&&!towerClothActive())showClothOptions(false);
-  $('exposure-controls').hidden=fernMode||featherMode||clothMode;
+  $('exposure-controls').hidden=kelpMode||fernMode||featherMode||clothMode;
   $('feather-controls').hidden=!featherMode||palmMode;
   $('oasis-controls').hidden=!palmMode;
   if(!palmMode)showOasisOptions(false);
@@ -351,21 +373,34 @@ function updateMetalFinish(){
   uniforms.uDepositRoughness.value=profile.depositRoughness;
   uniforms.uCorrosionRelief.value=profile.relief;
   state.flakeFactor=state.painted?1:profile.bareFlaking;
-  $('metal-symbol').textContent=fernMode?'Fn':clothMode?'Cl':palmMode?'Oa':featherMode?'Pl':profile.symbol;
-  $('metal-name').textContent=fernMode?'FERNS':clothMode?$('cloth-fabric-name').textContent.toUpperCase():palmMode?'OASIS':featherMode?'FEATHERS':profile.name.toUpperCase();
+  $('metal-symbol').textContent=kelpMode?'Kp':fernMode?'Fn':clothMode?'Cl':palmMode?'Oa':featherMode?'Pl':profile.symbol;
+  $('metal-name').textContent=kelpMode?'KELP FOREST':fernMode?'FERNS':clothMode?$('cloth-fabric-name').textContent.toUpperCase():palmMode?'OASIS':featherMode?'FEATHERS':profile.name.toUpperCase();
   $('scene').setAttribute('aria-label',`${state.painted?'Painted':'Bare'} ${profile.name.toLowerCase()} ${(models.active?'model':shapeNames[state.shape].toLowerCase())} developing ${profile.finish.toLowerCase()}. Tap the specimen to bounce. Drag loose flakes to move them; tap to remove. Drag elsewhere to orbit, scroll to zoom, or use the arrow keys.`);
   document.querySelector('[data-age="0"]').textContent=state.painted?'Fresh paint':'Fresh metal';
   if(fernMode)$('scene').setAttribute('aria-label','Fern crown with arching stems and finely divided green fronds. Drag to orbit and scroll to zoom.');
+  if(kelpMode)$('scene').setAttribute('aria-label','Underwater kelp forest with fish that avoid the moving leaves and stipes. Click the water to let fish roam freely. Drag to orbit and scroll to zoom.');
   if(clothMode)$('scene').setAttribute('aria-label','Ivory cloth draping over the selected geometry. Redrape resets the fabric. Drag to orbit and scroll to zoom.');
   if(featherMode)$('scene').setAttribute('aria-label',state.palm?(state.palmDesert&&state.palmOasis?'Desert oasis with shallow turquoise water, tall palms with young palms beneath them, an opposite dune and distant Jeddah Tower. Drag to orbit, scroll to zoom.':'Palm tree with a curved trunk and feather-grown fronds. Drag to orbit, scroll to zoom.'):'Feathers on textured skin. Click a feather to send the whole coat flying. Use Return feathers in Settings to restore the coat. Drag to orbit, scroll to zoom, or use the arrow keys.');
 }
 function refreshFeathers(){
+  const kelpMode=state.material==='kelp';
+  if(!kelpMode&&kelpSavedView){
+    kelpEnvironment.setEnabled(false);
+    camera.position.copy(kelpSavedView.position);controls.target.copy(kelpSavedView.target);
+    camera.far=kelpSavedView.far;controls.minDistance=kelpSavedView.minDistance;controls.maxDistance=kelpSavedView.maxDistance;
+    controls.update();kelpSavedView=null;
+    $('maze-enter').hidden=state.shape!=='maze'||models.active;
+  }
+  kelp.group.visible=kelpMode;
+  kelpAttractor.setVisible(kelpMode);
+  if(!kelpMode)stopKelpShot();
+  kelpFish.setVisible(kelpMode);
   const palmMode=state.material==='feathers'&&!!state.palm&&!models.active;
   const palmChanged=palm.group.visible!==palmMode;
   if(fernLife.active){fernLife.setActive(false);lastFernLifeStage=-1;}
   showFernCycle(false);
   palm.group.visible=palmMode;fern.group.visible=state.material==='fern'&&(!models.active||$('fern-on-object').checked);
-  fernDispersal.setVisible(fern.group.visible);specimen.visible=!models.active&&!palmMode&&(!fern.group.visible||$('fern-on-object').checked);
+  fernDispersal.setVisible(fern.group.visible);specimen.visible=!kelpMode&&!models.active&&!palmMode&&(!fern.group.visible||$('fern-on-object').checked);
   if(fernSavedView){
     scene.fog=fernSavedView.fog;camera.far=fernSavedView.far;ground.scale.copy(fernSavedView.groundScale);
     camera.position.copy(fernSavedView.position);controls.target.copy(fernSavedView.target);controls.maxDistance=fernSavedView.maxDistance;controls.update();fernSavedView=null;
@@ -375,6 +410,10 @@ function refreshFeathers(){
   if(state.material==='fern'){
     fernStage.setEnabled(true);
     fernSavedView={fog:scene.fog,far:camera.far,groundScale:ground.scale.clone(),position:camera.position.clone(),target:controls.target.clone(),maxDistance:controls.maxDistance};scene.fog=fernAtmosphere;
+  }
+  if(kelpMode&&!kelpSavedView){
+    kelpSavedView={position:camera.position.clone(),target:controls.target.clone(),far:camera.far,minDistance:controls.minDistance,maxDistance:controls.maxDistance};
+    kelpEnvironment.setHeight(kelp.settings.height);kelpEnvironment.setEnabled(true);camera.far=120;controls.minDistance=2;controls.maxDistance=45;
   }
   camera.updateProjectionMatrix();
   const active=state.material==='feathers'&&!palmMode;
@@ -647,6 +686,152 @@ function syncFeatherFlightUI(){
   if(palm.group.visible)return;
   const returning=feathers.returningCount>0;
   if($('feather-return').disabled!==returning){$('feather-return').disabled=returning;$('feather-return').textContent=returning?'Returning…':'Return feathers';}
+}
+function showKelpOptions(open){
+  $('kelp-options').hidden=!open;
+  $('kelp-controls').closest('.specimen-dock').classList.toggle('kelp-menu-open',open);
+  for(const id of ['kelp-material','kelp-settings-toggle'])$(id).setAttribute('aria-expanded',String(open));
+}
+function frameKelp(){
+  const damping=controls.enableDamping;controls.enableDamping=false;controls.update();
+  controls.target.set(0,floorY+.2,2.5);
+  const distance=Math.max(12.5,5.8/Math.tan(THREE.MathUtils.degToRad(camera.fov)*.5)/Math.max(.75,camera.aspect));
+  camera.position.copy(controls.target).add(new THREE.Vector3(.35,0,1).normalize().multiplyScalar(distance));
+  camera.position.y=floorY+Math.max(1.25,Math.min(4.8,kelp.settings.height*.45));
+  controls.update();controls.enableDamping=damping;renderDirty=true;
+}
+function syncKelp(){
+  syncKelpStats();
+  syncShapeButtons();
+  const lighting=kelpEnvironment.lightingSettings;
+  for(const name of Object.keys(lighting)){
+    $('kelp-light-'+name).value=Math.round(lighting[name]*100);
+    $('kelp-light-'+name+'-value').value=Math.round(lighting[name]*100)+'%';
+  }
+  const view=kelpEnvironment.lightingView,gain=kelpEnvironment.lightingPreviewGain;
+  $('kelp-lighting-view').value=view;
+  $('kelp-preview-gain-control').hidden=view!=='scattering';
+  $('kelp-preview-gain').value=gain;$('kelp-preview-gain-value').value=gain+'×';
+  $('kelp-lighting-help').textContent={
+    final:'Inspect the light passes without changing the final exposure.',
+    scattering:'Raw scattered radiance before bloom, exposure, tone mapping, and scene composition. Preview gain changes only this view.',
+    'volume-visibility':'Average sunlight visibility along each water ray. White is lit; black is shadowed.',
+    visibility:'Sunlight visibility at visible surfaces. This does not show visibility inside the water.',
+    direct:'Direct sunlight only, with ambient light, water scattering, and bloom excluded.',
+  }[view];
+  $('kelp-pause').textContent=kelp.playing?'Pause':'Resume';$('kelp-pause').setAttribute('aria-pressed',String(!kelp.playing));
+  $('kelp-fish-roam').textContent=kelpFish.roaming?'Regroup fish':'Let fish roam';$('kelp-fish-roam').setAttribute('aria-pressed',String(kelpFish.roaming));
+  renderDirty=true;renderer.shadowMap.needsUpdate=true;
+}
+function syncShapeButtons(){
+  const selected=state.material==='kelp'?kelpAttractor.shape:models.active?models.sampleKey:state.shape;
+  for(const button of document.querySelectorAll('[data-shape]')){
+    const active=button.dataset.shape===selected;button.classList.toggle('selected',active);button.setAttribute('aria-pressed',String(active));
+  }
+  $('horse-shape').classList.toggle('selected',selected==='horse');$('horse-shape').setAttribute('aria-pressed',String(selected==='horse'));
+  $('kelp-remove-shape').disabled=!kelpAttractor.hasShape;
+  $('kelp-cube-reference').checked=kelpAttractor.cubeReference;
+  $('kelp-shape-status').textContent=kelpFish.roaming?(kelpAttractor.hasShape?'Fish are roaming and avoiding the shape. Regroup to attract them again.':'Fish are roaming freely. Regroup to return them to schooling and grazing.'):kelpAttractor.hasShape?(shapeNames[kelpAttractor.shape]??'Horse')+' attracts the fish. They circle it with a safe gap; removing it resumes grazing.':'Choose a shape below to place it on the seabed and attract the fish.';
+}
+function addKelpShape(shape){
+  if(shape==='maze'&&kelpAttractor.shape==='maze'){
+    const next=mazeMaps[(mazeMaps.findIndex(map=>map.id===getMazeMap())+1)%mazeMaps.length];
+    setMazeMap(next.id);state.mazeMap=next.id;syncMazeMapButton();
+  }
+  kelpAttractor.setShape(shape);kelpFish.setAttractor(kelpAttractor);syncKelp();
+  renderer.shadowMap.needsUpdate=true;renderDirty=true;
+}
+async function addKelpHorse(){
+  $('horse-shape').disabled=true;$('kelp-shape-status').textContent='Loading horse…';
+  try{if(await kelpAttractor.loadHorse()){kelpFish.setAttractor(kelpAttractor);if(state.material==='kelp')syncKelp();}}
+  catch(error){toast('Could not load the horse. Choose another shape.');}
+  finally{$('horse-shape').disabled=false;syncShapeButtons();renderDirty=true;renderer.shadowMap.needsUpdate=true;}
+}
+function syncKelpStats(){
+  const stats=kelp.stats,school=kelpFish.stats;
+  const summary=stats.strands+' stipes · '+school.count+' fish'+(kelpFish.roaming?' · roaming':'')+(kelpEnvironment.lightingView!=='final'?' · inspecting lighting':''),feeding=Math.round(stats.remaining*100)+'% kelp remaining · '+stats.eaten+' blades eaten · '+school.feeding+' fish feeding';
+  if($('kelp-count').textContent!==summary)$('kelp-count').textContent=summary;
+  if($('kelp-feeding-status').textContent!==feeding)$('kelp-feeding-status').textContent=feeding;
+}
+$('kelp-material').addEventListener('click',()=>{
+  if(state.material==='kelp'){showKelpOptions($('kelp-options').hidden);return;}
+  mazeNavigation.exit();models.clear();interactions.cancel();surface.repaint();showPaintOptions(false);showFeatherOptions(false);
+  state.material='kelp';state.palm=false;models.setAppearance();setPlaying(false);setLayerView(0);setAutoRotation(false);
+  if(!kelp.stats.strands)kelp.rebuild();
+  kelp.setPlaying(!reducedMotion);refreshFeathers();setAutoRotation(false);updateMetalFinish();syncKelp();frameKelp();
+  $('maze-enter').hidden=true;$('scene').title='Click to let fish roam · Drag to orbit · Scroll to zoom';
+});
+$('kelp-settings-toggle').onclick=()=>showKelpOptions($('kelp-options').hidden);
+$('kelp-settings-close').onclick=()=>{showKelpOptions(false);$('kelp-settings-toggle').focus();};
+$('kelp-pause').onclick=()=>{kelp.setPlaying(!kelp.playing);syncKelp();};
+$('kelp-camera-push').onclick=()=>{
+  if(kelpShot){stopKelpShot();return;}
+  setAutoRotation(false);
+  kelpShot={elapsed:0,position:camera.position.clone(),target:controls.target.clone()};
+  $('kelp-camera-push').textContent='Stop camera';$('kelp-camera-push').setAttribute('aria-pressed','true');
+};
+$('kelp-surface').onclick=()=>{
+  if(kelpShot?.surface){stopKelpShot();return;}
+  stopKelpShot();setAutoRotation(false);
+  const top=kelpEnvironment.surfaceY,diving=camera.position.y>top-.25;
+  kelpShot={surface:true,elapsed:0,position:camera.position.clone(),target:controls.target.clone(),
+    destination:new THREE.Vector3(.5,diving?floorY+3:top+.65,10),
+    look:new THREE.Vector3(0,diving?floorY+2:top+.25,diving?0:-20)};
+  $('kelp-surface').textContent='Stop camera';$('kelp-surface').setAttribute('aria-pressed','true');
+};
+$('kelp-regrow').onclick=()=>{kelp.rebuild({seed:kelp.settings.seed+101});kelpFish.reset();syncKelp();};
+$('kelp-restore').onclick=()=>{kelp.restore();syncKelp();};
+$('kelp-remove-shape').onclick=()=>{kelpAttractor.clear();kelpFish.setAttractor(kelpAttractor);syncKelp();};
+function setKelpRoaming(value){kelpFish.setRoaming(value);kelp.setPlaying(true);syncKelp();}
+$('kelp-fish-roam').onclick=()=>setKelpRoaming(!kelpFish.roaming);
+$('kelp-lighting-view').onchange=event=>{kelpEnvironment.setLightingView(event.target.value);syncKelp();};
+$('kelp-preview-gain').oninput=event=>{
+  kelpEnvironment.setLightingPreviewGain(Number(event.target.value));
+  $('kelp-preview-gain-value').value=kelpEnvironment.lightingPreviewGain+'×';renderDirty=true;
+};
+for(const name of Object.keys(kelpEnvironment.lightingSettings)){
+  $('kelp-light-'+name).oninput=event=>{
+    kelpEnvironment.setLightingSettings({[name]:Number(event.target.value)/100});
+    $('kelp-light-'+name+'-value').value=Math.round(kelpEnvironment.lightingSettings[name]*100)+'%';
+    renderDirty=true;renderer.shadowMap.needsUpdate=true;
+  };
+}
+$('kelp-light-reset').onclick=()=>{kelpEnvironment.resetLighting();syncKelp();};
+$('kelp-cube-reference').onchange=event=>{
+  const roaming=kelpFish.roaming;
+  kelpAttractor.setCubeReference(event.target.checked);kelpFish.setAttractor(kelpAttractor);
+  kelpFish.setRoaming(roaming);syncKelp();
+};
+let kelpTap=null;
+renderer.domElement.addEventListener('pointerdown',event=>{
+  if(event.isPrimary===false){kelpTap=null;return;}
+  kelpTap=state.material==='kelp'&&event.button===0?{id:event.pointerId,x:event.clientX,y:event.clientY,moved:false}:null;
+});
+renderer.domElement.addEventListener('pointermove',event=>{
+  if(kelpTap?.id===event.pointerId&&Math.hypot(event.clientX-kelpTap.x,event.clientY-kelpTap.y)>6)kelpTap.moved=true;
+});
+renderer.domElement.addEventListener('pointerup',event=>{
+  const tap=kelpTap;kelpTap=null;
+  if(state.material==='kelp'&&tap?.id===event.pointerId&&!tap.moved&&Math.hypot(event.clientX-tap.x,event.clientY-tap.y)<=6)setKelpRoaming(true);
+});
+renderer.domElement.addEventListener('pointercancel',()=>{kelpTap=null;});
+for(const [name,key,divisor] of [['count','count',1],['speed','speed',100],['feeding','feeding',100]]){
+  $('kelp-fish-'+name).oninput=event=>{
+    const value=Number(event.target.value);kelpFish.setSettings({[key]:value/divisor});
+    $('kelp-fish-'+name+'-value').value=name==='count'?value:name==='speed'?(value/100).toFixed(2)+'×':value+'%';syncKelp();
+  };
+}
+for(const name of ['strands','height','generations','current','direction','scattering']){
+  const input=$('kelp-'+name);
+  input.oninput=()=>{
+    const value=Number(input.value);
+    $('kelp-'+name+'-value').value=(name==='current'||name==='scattering')?value+'%':name==='direction'?value+'°':name==='height'?value.toFixed(1):value;
+    if(name==='current')kelp.setCurrent(value/100);
+    else if(name==='direction')kelp.setCurrent(kelp.settings.current,value);
+    else if(name==='scattering')kelp.setScattering(value/100);
+    else{kelp.rebuild({[name]:value});kelpEnvironment.setHeight(kelp.settings.height);kelpAttractor.setWaterHeight(kelp.settings.height);kelpFish.reset();}
+    syncKelp();
+  };
 }
 function showFernOptions(open){
   if(open)showFernCycle(false);
@@ -957,6 +1142,7 @@ document.addEventListener('click',event=>{
   if(!$('paint-options').contains(event.target)&&!$('paint-toggle').contains(event.target))showPaintOptions(false);
   if(!$('feather-controls').contains(event.target)&&!$('feather-material').contains(event.target)&&!$('feather-options').contains(event.target)&&!$('maze-feather-settings').contains(event.target))showFeatherOptions(false);
   if(!$('fern-controls').contains(event.target)&&!$('fern-material').contains(event.target)){showFernOptions(false);showFernCycle(false);}
+  if(!$('kelp-controls').contains(event.target)&&!$('kelp-material').contains(event.target))showKelpOptions(false);
   if(!$('oasis-controls').contains(event.target)&&!$('oasis-material').contains(event.target))showOasisOptions(false);
 });
 document.addEventListener('keydown',event=>{
@@ -964,6 +1150,7 @@ document.addEventListener('keydown',event=>{
   if(event.key==='Escape'&&!$('feather-options').hidden){showFeatherOptions(false);$(mazeNavigation.active?'maze-feather-settings':'feather-settings-toggle').focus();}
   if(event.key==='Escape'&&!$('fern-cycle-options').hidden){showFernCycle(false);$('fern-cycle-toggle').focus();}
   if(event.key==='Escape'&&!$('fern-options').hidden){showFernOptions(false);$('fern-settings-toggle').focus();}
+  if(event.key==='Escape'&&!$('kelp-options').hidden){showKelpOptions(false);$('kelp-settings-toggle').focus();}
   if(event.key==='Escape'&&!$('oasis-options').hidden){showOasisOptions(false);$('oasis-settings-toggle').focus();}
 });
 
@@ -985,6 +1172,7 @@ function changeShape(shape){
 }
 
 document.querySelectorAll('[data-shape]').forEach(button=>button.addEventListener('click',()=>{
+  if(state.material==='kelp'){addKelpShape(button.dataset.shape);return;}
   if(state.material==='fern')$('fern-on-object').checked=true;
   if(state.palm){state.palm=false;refreshFeathers();updateMetalFinish();}
   if(button.dataset.shape===state.shape&&!models.active&&state.material!=='fern'){
@@ -1005,11 +1193,21 @@ document.querySelectorAll('[data-shape]').forEach(button=>button.addEventListene
 
 const sampleNames={horse:'Horse statue',glasses:'Glasses',duck:'Duck'};
 $('horse-shape').addEventListener('click',async()=>{
+  if(state.material==='kelp'){
+    await addKelpHorse();
+    return;
+  }
   interactions.cancel();
   if(await models.loadSample('horse',sampleNames.horse))repaint(!reducedMotion);
 });
 
 $('random-shape').onclick=async()=>{
+  if(state.material==='kelp'){
+    const shapes=[...Object.keys(shapeNames),'horse'].filter(shape=>shape!==kelpAttractor.shape);
+    const selected=shapes[Math.floor(Math.random()*shapes.length)];
+    if(selected==='horse')await addKelpHorse();else addKelpShape(selected);
+    return;
+  }
   interactions.cancel();
   const previousMaterial=state.material==='feathers'?'feathers':state.metal;
   leaveFeathers();
@@ -1059,6 +1257,7 @@ let lastTime=performance.now(),lastGeometryTime=0,uiElapsed=0,firstFrame=true;
 let lastShadowGeometry=null,lastShadowVersion=-1,lastUIAge=state.age;
 const buildingShadowBounds=new THREE.Box3();
 function renderScene(){
+  kelp.updateSunlight();
   if(scene.fog===fernAtmosphere)fernAtmosphere.density=Math.min(.002,.5/Math.max(1,camera.position.distanceTo(controls.target)));
   if(fernDispersal.group.visible)fernDispersal.updateView();
   if(desert.enabled&&state.palmSceneView==='building'&&desertLandmark.group.children.length){
@@ -1066,7 +1265,7 @@ function renderScene(){
     if(towerCloth.group.visible)buildingShadowBounds.expandByObject(towerCloth.group,true);
     desert.setShadowBounds(buildingShadowBounds);
   }else desert.setShadowBounds(null);
-  mirage.render(scene,camera,()=>featherRenderer.render(scene,camera));
+  kelpEnvironment.render(camera,()=>mirage.render(scene,camera,()=>featherRenderer.render(scene,camera)),kelp.elapsed);
 }
 function animate(time){
   requestAnimationFrame(animate);
@@ -1094,6 +1293,18 @@ function animate(time){
   }
   if(state.material==='feathers'&&feathers.advance(dt,camera,controls.target))renderDirty=true;
   updateFernPointerWind();
+  if(kelp.group.visible&&kelp.setViewingCorridor(camera.position,kelpAttractor.active?kelpAttractor:null,dt)){renderDirty=true;renderer.shadowMap.needsUpdate=true;}
+  if(kelp.advance(dt)){kelpEnvironment.advance(dt);renderDirty=true;renderer.shadowMap.needsUpdate=true;}
+  if(kelpShot&&(kelp.playing||kelpShot.surface)){
+    kelpShot.elapsed+=dt;const t=Math.min(1,kelpShot.elapsed/(kelpShot.surface?9:20)),ease=t*t*(3-2*t);
+    camera.position.copy(kelpShot.position).lerp(kelpShot.destination??new THREE.Vector3(1.8,floorY+Math.max(1.25,Math.min(3.5,kelp.settings.height*.32)),10),ease);
+    controls.target.copy(kelpShot.target).lerp(kelpShot.look??new THREE.Vector3(0,floorY+.2,2.5),ease);renderDirty=true;
+    if(t===1)stopKelpShot();
+  }
+  if(kelpAttractor.advance(dt)){renderDirty=true;renderer.shadowMap.needsUpdate=true;}
+  if(kelpEnvironment.advanceImpact(dt))renderDirty=true;
+  if(kelp.group.visible&&kelp.playing&&kelpEnvironment.advanceBubbles(dt))renderDirty=true;
+  if(kelpFish.advance(dt)){renderDirty=true;renderer.shadowMap.needsUpdate=true;}
   if(fernDispersal.advance(dt)){
     renderDirty=true;renderer.shadowMap.needsUpdate=true;syncFernDispersal();
   }
@@ -1106,7 +1317,7 @@ function animate(time){
   if(oasis.advance(dt))renderDirty=true;
   if((state.material==='cloth'||towerClothActive())&&cloth.advance(dt)){renderDirty=true;renderer.shadowMap.needsUpdate=true;}
   syncFeatherFlightUI();
-  uiElapsed+=dt;if(uiElapsed>.15){if(state.material==='cloth'||towerClothActive()){syncClothRopeStatus();syncClothPlayback();}if(state.age!==lastUIAge){updateAgeUI();lastUIAge=state.age;}uiElapsed=0;}
+  uiElapsed+=dt;if(uiElapsed>.15){if(state.material==='kelp')syncKelpStats();if(state.material==='cloth'||towerClothActive()){syncClothRopeStatus();syncClothPlayback();}if(state.age!==lastUIAge){updateAgeUI();lastUIAge=state.age;}uiElapsed=0;}
   const geometry=surface.mesh.geometry;
   // Camera orbit and shader-only aging do not change the light-space geometry.
   if(geometry!==lastShadowGeometry||geometry.attributes.position.version!==lastShadowVersion){
