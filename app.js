@@ -734,7 +734,7 @@ function syncFernDispersal(){
   const stats=fernDispersal.stats;
   const air=fernDispersal.wind;$('fern-wind-live').textContent='Wind from '+Math.round((air.direction+180+360)%360)+'° · '+Math.round(air.strength*100)+'% · '+(air.pointer?'following cursor':'windmill faces incoming air');
   if(state.material==='fern'&&!fernLife.active){const fronds=fernDispersal.inspectPlant(0)?.fronds??[];const visible=fronds.filter(f=>f.visible);$('fern-count').textContent=stats.parentStage==='dead'?stats.colonies+' living ferns':visible.length+' fronds · '+visible.filter(f=>f.unroll<.99).length+' coiled';}
-  const status=stats.airborne+' drifting · '+stats.colonies+' ferns · '+stats.grown+' mature · '+stats.drying+' drying · '+stats.died+' died · generation '+stats.generation;
+  const status=stats.airborne+' drifting · '+stats.colonies+' ferns · '+stats.grown+' mature · '+stats.drying+' drying · '+stats.died+' died · generation '+stats.generation+(stats.deposits?' · '+stats.deposits+' litter layers':'');
   if($('fern-spores-status').textContent!==status)$('fern-spores-status').textContent=status;
   $('fern-spores-pause').textContent=fernDispersal.playing?'Pause dispersal':'Resume dispersal';
   $('fern-spores-pause').setAttribute('aria-pressed',String(!fernDispersal.playing));

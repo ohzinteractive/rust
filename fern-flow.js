@@ -1,9 +1,17 @@
+// Shared wind terms are prepared once per physics step, not per particle.
+export function prepareFernFlow(time,windVector,strength,floorY,out={}){
+  const magnitude=Math.hypot(windVector.x,windVector.z);
+  out.magnitude=magnitude;out.dx=magnitude>0?windVector.x/magnitude:1;out.dz=magnitude>0?windVector.z/magnitude:0;
+  out.gust=1+.2*Math.sin(time*.63)+.1*Math.sin(time*1.17+.8);out.turbulence=strength*.34;
+  return out;
+}
+
 // A shared analytic flow field: three curl-like modes produce coherent eddies
 // without a voxel grid, pressure solve, particle neighbours or allocations.
 // Coordinates follow the mean wind, so changing direction rotates the flow.
-export function sampleFernFlow(point,time,windVector,strength,floorY,out){
-  const magnitude=Math.hypot(windVector.x,windVector.z);
-  const dx=magnitude>0?windVector.x/magnitude:1,dz=magnitude>0?windVector.z/magnitude:0;
+export function sampleFernFlow(point,time,windVector,strength,floorY,out,prepared){
+  const frame=prepared??prepareFernFlow(time,windVector,strength,floorY);
+  const {magnitude,dx,dz}=frame;
   const along=point.x*dx+point.z*dz-time*magnitude*.55;
   const across=-point.x*dz+point.z*dx,height=Math.max(0,point.y-floorY);
   const a=along*1.25+time*.38,b=across*1.1-time*.27,c=height*1.4+time*.31;
@@ -12,8 +20,8 @@ export function sampleFernFlow(point,time,windVector,strength,floorY,out){
   const swirlAlong=Math.sin(b)+.55*Math.cos(c);
   const swirlAcross=Math.sin(c)+.55*Math.cos(a);
   const swirlUp=Math.sin(a)+.55*Math.cos(b);
-  const gust=1+.2*Math.sin(time*.63)+.1*Math.sin(time*1.17+.8);
-  const turbulence=strength*.34,ground=Math.min(1,height/.35);
+  const gust=frame.gust;
+  const turbulence=frame.turbulence,ground=Math.min(1,height/.35);
   const forward=magnitude*gust+turbulence*swirlAlong,lateral=turbulence*swirlAcross;
   return out.set(dx*forward-dz*lateral,turbulence*swirlUp*ground, dz*forward+dx*lateral);
 }

@@ -5,11 +5,13 @@ import * as THREE from 'three';
 export function solveFernContacts(samples,cellSize=.3){
   const cells=new Map(),targets=new Map();
   for(const s of samples){
-    const x=Math.floor(s.point.x/cellSize),z=Math.floor(s.point.z/cellSize),key=x+','+z;
-    for(let dx=-1;dx<=1;dx++)for(let dz=-1;dz<=1;dz++)for(const other of cells.get((x+dx)+','+(z+dz))??[]){
+    const x=Math.floor(s.point.x/cellSize),z=Math.floor(s.point.z/cellSize);
+    for(let dx=-1;dx<=1;dx++)for(let dz=-1;dz<=1;dz++)for(const other of cells.get(x+dx)?.get(z+dz)??[]){
       if(s.plant===other.plant)continue;
-      const reach=s.radius+other.radius,distance=Math.hypot(s.point.x-other.point.x,s.point.z-other.point.z);
-      if(distance>=reach)continue;
+      if(Math.abs(s.point.y-other.point.y)>=.055)continue;
+      const reach=s.radius+other.radius,dx=s.point.x-other.point.x,dz=s.point.z-other.point.z,distanceSquared=dx*dx+dz*dz;
+      if(distanceSquared>=reach*reach)continue;
+      const distance=Math.sqrt(distanceSquared);
       const lower=s.point.y<other.point.y?s:other,upper=lower===s?other:s;
       const gap=upper.point.y-lower.point.y,clearance=.055;
       if(gap>=clearance)continue;
@@ -17,7 +19,8 @@ export function solveFernContacts(samples,cellSize=.3){
       const key=lower.plant+':'+lower.frond;
       targets.set(key,Math.max(targets.get(key)??0,amount));
     }
-    if(!cells.has(key))cells.set(key,[]);cells.get(key).push(s);
+    if(!cells.has(x))cells.set(x,new Map());const row=cells.get(x);
+    if(!row.has(z))row.set(z,[]);row.get(z).push(s);
   }
   return targets;
 }

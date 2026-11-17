@@ -71,7 +71,7 @@ test('wind carries spores from real fronds to grounded, growing colonies',()=>{
 test('offspring mature at full size, seed successive generations, and respect the population limit',()=>{
   const scene=new THREE.Scene(),fern=createFern({scene});fern.rebuild({fronds:6,density:.25});
   const dispersal=createFernDispersal({scene,fern,maxColonies:12});dispersal.rebuild();dispersal.setVisible(true);dispersal.setWind(.55,0);dispersal.setSpeed(32);dispersal.setPlaying(true);
-  for(let i=0;i<150;i++)dispersal.advance(.05);
+  for(let i=0;i<700&&(dispersal.stats.colonies<12||dispersal.stats.generation<3);i++)dispersal.advance(.05);
   assert.equal(dispersal.stats.colonies,12);assert(dispersal.stats.generation>=3);assert(dispersal.stats.reproducing>1);assert(dispersal.stats.emitted>1000);
   const colonies=dispersal.group.getObjectByName('New fern colonies').children;
   assert(colonies.some(c=>c.userData.generation>=3));
@@ -109,6 +109,7 @@ test('colony rendering reduces geometry, culls offscreen plants and updates a pa
   assert.equal(sim.stats.colonies,80,'The colony can exceed the previous 64-fern limit');
   const canopies=sim.group.getObjectByName('Full-size offspring canopies'),high=canopies.children[0].geometry;
   const fullTriangles=high.attributes.position.count/3*sim.stats.colonies;
+  const overview=new THREE.PerspectiveCamera(45,1,.1,1000);overview.position.set(0,30,45);overview.lookAt(0,-1,0);sim.updateView(overview);
   assert(sim.renderStats.triangles<fullTriangles*.4,'Mixed-distance views retain foreground quality while removing at least 60% of canopy triangles');
   assert(sim.renderStats.drawCalls<=5);
   const camera=new THREE.PerspectiveCamera(45,1,.1,1000);camera.position.set(0,5,8);camera.lookAt(0,-1,0);
@@ -334,4 +335,48 @@ test('windmill stays outside the object and its fern canopy at a fixed corner',a
     const position=windmillCorner(bounds,-1.75,.6);
     assert(position.x+.35<bounds.min.x-.6);assert(position.z-.35>bounds.max.z+.6);assert.equal(position.y,-1.75);
   }
+});
+
+
+test('dead ferns accumulate soil height and new ferns root on the previous crown',()=>{
+  const scene=new THREE.Scene(),fern=createFern({scene});fern.rebuild({fronds:6,density:.25});
+  const sim=createFernDispersal({scene,fern,maxColonies:1});sim.rebuild();sim.setVisible(true);sim.setWind(0);sim.setSpeed(32);sim.setPlaying(true);
+  for(let i=0;i<400&&sim.stats.deposits===0;i++)sim.advance(.05);
+  assert(sim.stats.deposits>0);const firstHeight=sim.floorHeight(0,0);assert(firstHeight> -1.75);
+  for(let i=0;i<80;i++)sim.advance(.05);
+  const bed=sim.group.getObjectByName('New fern colonies');
+  assert(bed.children.some(c=>Math.hypot(c.position.x,c.position.z)<.001&&c.position.y>=firstHeight-.001),'A replacement roots above the original crown');
+  const litter=sim.group.getObjectByName('Persistent fallen fern fronds');assert(litter.count>0);
+  for(let i=0;i<500;i++)sim.advance(.05);
+  assert(sim.floorHeight(0,0)>firstHeight,'Successive generations build more ground');assert(litter.count>1);
+  sim.rebuild();assert.equal(sim.floorHeight(0,0),-1.75);assert.equal(sim.stats.deposits,0);sim.dispose();fern.dispose();
+});
+
+test('a full fern population reserves every old crown for renewal despite incoming spores',()=>{
+  const scene=new THREE.Scene(),fern=createFern({scene});fern.rebuild({fronds:6,density:.25});
+  const sim=createFernDispersal({scene,fern,maxColonies:8});sim.rebuild();sim.setVisible(true);sim.setWind(.6,0);sim.setSpeed(32);sim.setPlaying(true);
+  for(let i=0;i<700&&sim.stats.colonies<8;i++)sim.advance(.05);
+  assert.equal(sim.stats.colonies,8);
+  const bed=sim.group.getObjectByName('New fern colonies'),key=c=>c.position.x.toFixed(5)+','+c.position.z.toFixed(5);
+  const sites=new Map(bed.children.filter(c=>c.userData.stage!=='dead').map(c=>[key(c),{id:c.userData.id,height:c.position.y}])),renewed=new Set();
+  assert.equal(sites.size,8);
+  for(let i=0;i<600;i++){
+    sim.advance(.05);assert(sim.stats.colonies<=8);
+    for(const c of bed.children){
+      assert(sites.has(key(c)),'An incoming spore cannot steal a reserved population slot');
+      const old=sites.get(key(c));if(c.userData.id!==old.id){assert(c.position.y>old.height);renewed.add(key(c));}
+    }
+  }
+  assert.equal(renewed.size,sites.size,'Every established crown gets a successor at the same x/z');
+  sim.dispose();fern.dispose();
+});
+
+test('accumulated soil batches many patches, preserves heights and frees its buffers on reset',async()=>{
+  const {createFernFloor}=await import('../fern-floor.js');const root=new THREE.Group(),floor=createFernFloor(root,-1.75);
+  for(let i=0;i<30;i++)floor.deposit(new THREE.Vector3(i*4,-1.75,0),1);
+  assert(floor.stats.soilTiles>64,'Exercise terrain buffer expansion');assert.equal(floor.group.children.length,1);
+  const batch=floor.group.children[0];assert(batch.isBatchedMesh);assert(batch.geometry.attributes.position.array.every(Number.isFinite));
+  const before=floor.height(0,0);floor.deposit(new THREE.Vector3(0,-1.75,0),1);assert(Math.abs(floor.height(0,0)-before-.035)<1e-9);
+  let disposed=0;batch.geometry.addEventListener('dispose',()=>disposed++);floor.clear();assert.equal(disposed,1);assert.equal(floor.height(0,0),-1.75);assert.equal(floor.group.children.length,0);
+  floor.dispose();assert.equal(root.children.length,0);
 });

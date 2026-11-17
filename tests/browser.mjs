@@ -29,7 +29,15 @@ try{
  let loaded=false;for(let i=0;i<100;i++){await delay(200);loaded=await run("document.readyState==='complete'&&!document.getElementById('loading')");if(loaded||errors.length)break;}
  assert.equal(errors.length,0,JSON.stringify(errors));assert(loaded,'Scene did not finish loading');
  assert(await run("document.getElementById('webgl-error').hidden"));
- if(process.argv.includes('--fern-horse-only')){
+ if(process.argv.includes('--fern-floor-only')){
+   await run("document.getElementById('fern-material').click();(()=>{for(const [id,value] of [['fern-fronds',6],['fern-density',25]]){const input=document.getElementById(id);input.value=value;input.dispatchEvent(new Event('input'));}})();document.getElementById('fern-spores-release').click();peelDebug.fernDispersal.setVariableWind(false);peelDebug.fernDispersal.setWind(0);peelDebug.fernDispersal.setPopulationLimit(1);peelDebug.fernDispersal.setSpeed(32);peelDebug.controls.enableDamping=false;peelDebug.controls.target.set(0,-1.45,0);peelDebug.camera.position.set(2,.1,3);peelDebug.controls.update();peelDebug.fernDispersal.setPlaying(false)");
+   const pose=await run('JSON.stringify([peelDebug.camera.position.toArray(),peelDebug.controls.target.toArray()])');
+   const result=await run("(()=>{const sim=peelDebug.fernDispersal;sim.setPlaying(true);for(let i=0;i<1000;i++)sim.advance(.05);sim.setPlaying(false);peelDebug.renderScene();return {stats:sim.stats,height:sim.floorHeight(0,0),litter:sim.group.getObjectByName('Persistent fallen fern fronds').count};})()");
+   assert(result.stats.deposits>=3);assert(result.height> -1.68);assert(result.litter>=3);
+   assert.equal(await run('JSON.stringify([peelDebug.camera.position.toArray(),peelDebug.controls.target.toArray()])'),pose);
+   const shot=await call('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});await writeFile('/private/tmp/oxide-fern-floor.png',Buffer.from(shot.result.data,'base64'));
+   assert.equal(errors.length,0,JSON.stringify(errors));console.log('PASS: persistent brown fronds, accumulating ground and successive rooted generations.',JSON.stringify(result));
+ }else if(process.argv.includes('--fern-horse-only')){
    await run("document.getElementById('fern-material').click();document.getElementById('horse-shape').click()");
    for(let i=0;i<150;i++){await delay(200);if(await run("peelDebug.models.sampleKey==='horse'"))break;}
    assert.equal(await run('peelDebug.models.sampleKey'),'horse');
@@ -106,7 +114,7 @@ try{
    assert(await run("peelDebug.fernDispersal.populationLimit===512&&Number(document.getElementById('fern-population-limit').max)===512"));
    const initialPose=await run('JSON.stringify([peelDebug.camera.position.toArray(),peelDebug.controls.target.toArray()])');
    const result=await run("(()=>{const sim=peelDebug.fernDispersal;sim.setPlaying(true);const start=performance.now();for(let i=0;i<1800;i++)sim.advance(.05);sim.setPlaying(false);peelDebug.renderScene();return {milliseconds:performance.now()-start,stats:sim.stats,render:sim.renderStats};})()");
-   assert.equal(result.stats.colonies,512);assert(result.stats.grown>256);assert(result.stats.died>0);assert(result.render.culled>0);assert(result.render.drawCalls<=5);
+   assert.equal(result.stats.colonies+result.stats.renewing,512);assert(result.stats.grown>256);assert(result.stats.died>0);assert(result.render.culled>0);assert(result.render.drawCalls<=5);
    const finalPose=await run('JSON.stringify([peelDebug.camera.position.toArray(),peelDebug.controls.target.toArray()])');
    assert(JSON.parse(finalPose).flat().every((value,i)=>Math.abs(value-JSON.parse(initialPose).flat()[i])<1e-9),'Population growth and detail selection preserve the camera');
    console.log('512 fern simulation',JSON.stringify(result));
