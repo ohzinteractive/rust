@@ -48,6 +48,7 @@
       <div class="view-mode" role="group" aria-label="Material view">
         <button id="surface-view" class="selected" aria-pressed="true">Surface</button>
         <button id="layers-view" aria-pressed="false">Layers</button>
+        <button id="shape-gate-view" type="button" aria-pressed="false" hidden>Shape Gate</button>
         <button id="copy-settings" type="button" aria-label="Copy settings" title="Copy settings"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg></button>
       </div>
       <div class="canvas-wrap" id="canvas-wrap">
@@ -196,6 +197,7 @@
           <p class="feather-flight-help">Pinnate fronds grown from the feather generator, with a curved, textured trunk.</p>
           <fieldset class="feather-style"><legend>Environment</legend><label><input type="radio" name="palm-environment" value="desert" checked><span>Desert daylight</span></label><label><input type="radio" name="palm-environment" value="studio"><span>Dark studio</span></label></fieldset>
           <label class="palm-oasis-toggle"><input id="palm-oasis" type="checkbox" checked> Oasis &amp; palm grove</label>
+          <label class="palm-oasis-toggle"><input id="oasis-shape-gate" type="checkbox"> Shape Gate</label>
           <details id="palm-camera-light" class="feather-surface-settings" open>
             <summary>Camera &amp; sun</summary>
             <div class="feather-setting"><div><label for="palm-camera-fov">Camera FOV</label><output id="palm-camera-fov-value" for="palm-camera-fov">48°</output></div><input id="palm-camera-fov" type="range" min="20" max="110" step="1" value="48"><p>Vertical field of view. Your choice stays fixed when resizing or resetting the view.</p></div>
@@ -290,6 +292,7 @@
           <button type="button" class="material-swatch shape-swatch" data-shape="pill" aria-pressed="false" aria-label="Pill shape"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="2" width="12" height="20" rx="6" transform="rotate(30 12 12)"/></svg><span>Pill</span></button>
           <button type="button" class="material-swatch shape-swatch" data-shape="maze" aria-pressed="false" aria-label="Maze shape"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 22H5L2 2h20l-3 20h-5V12H9v6H7L5 5h5v3H8m5-6v6h6l-2 11h-1M5 11h2m6-6h6"/></svg><span>Maze</span></button>
           <button type="button" id="horse-shape" data-sample="horse" class="material-swatch shape-swatch" aria-pressed="false" aria-label="3D model: Horse, 1 of 4. Click again to switch models." title="Horse · Click again to switch models"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 21 1-6-3-2-3 1-1-3 4-4 2-4 2 3 4 2 2 5 4 2 1 6M8 21h13M9 15l6-3M8 7h.01"/></svg><span>Horse 1/4</span></button>
+          <button type="button" id="shape-gate-shape" class="material-swatch shape-swatch" aria-pressed="false" title="Shape Gate"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 19a9 9 0 0 1 7-8.8M14 10.2a9 9 0 0 1 7 8.8ZM12 3v10"/><rect x="10" y="13" width="4" height="4" rx=".5"/></svg><span>Shape Gate</span></button>
           <button type="button" id="random-shape" class="material-swatch shape-swatch" aria-label="Randomize specimen" title="New shape, material, paint and colours"><svg aria-hidden="true"><use href="#i-shuffle"></use></svg><span>Random</span></button>
         </div>
       </div>

@@ -132,7 +132,10 @@ export function createDesertOasis({scene,floorY=-1.75,reducedMotion=false,primar
     {parent:null,offset:[-.6,.35]},{parent:null,offset:[.4,.45]},{parent:7,offset:[-.45,-.05]},{parent:7,offset:[.25,.6]}];
   let settings={...defaultPalmSettings},signature='',clock=0,fronds=[],reflectionDirty=true,reflectionTime=-1,reflectionRenders=0,primaryY=null;
   const reflectionWorld=new THREE.Matrix4(),reflectionProjection=new THREE.Matrix4(),renderReflection=water.onBeforeRender;
+  water.getRenderTarget().isPlanarReflection=true;
   water.onBeforeRender=function(renderer,scene,camera){
+    const target=renderer.getRenderTarget();
+    if(target?.isPlanarReflection||target?.isWebGLCubeRenderTarget)return;
     if(reflectionDirty||!reflectionWorld.equals(camera.matrixWorld)||!reflectionProjection.equals(camera.projectionMatrix)||clock-reflectionTime>=.05){
       renderReflection.call(water,renderer,scene,camera);reflectionWorld.copy(camera.matrixWorld);reflectionProjection.copy(camera.projectionMatrix);
       reflectionDirty=false;reflectionTime=clock;reflectionRenders++;

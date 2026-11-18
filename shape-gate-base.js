@@ -8,10 +8,9 @@ import {seededRandom} from './plume-lsystem/random.js';
 const sideOffset = gateRimDepth / 2 + .105;
 const endOffset = gateRimRadius + .125;
 const channelWidth = .136;
-const platformHeight = .22;
 const rimHeight = .07;
 
-export function createGateFloor(){
+export function createGateFloor({includeGround=true,platformHeight=.22,reflectionSize=640}={}){
  const halfLength=endOffset+.025, halfWidth=sideOffset+.025;
  // The aluminum frame spans eight columns and one centered row.
  const frameColumns=8, columns=frameColumns+2, rows=7;
@@ -37,9 +36,14 @@ export function createGateFloor(){
   });
   return geometry.rotateX(-Math.PI/2).translate(0,bevel-platformHeight,0);
  }
- const floor=new T.Mesh(surround(tileHalfLength,tileHalfWidth),new T.MeshStandardMaterial({color:0xb3a08a,roughness:.9}));
+ const floor=includeGround
+  ?new T.Mesh(surround(tileHalfLength,tileHalfWidth),new T.MeshStandardMaterial({color:0xb3a08a,roughness:.9}))
+  :new T.Group();
+ floor.name='Shape Gate platform';
  floor.receiveShadow=true;
- const marble=createPolishedMarbleFloor(tiles(tileHalfLength,tileHalfWidth),tileSize,tileHalfLength,tileHalfWidth);
+ const marble=createPolishedMarbleFloor(tiles(tileHalfLength,tileHalfWidth),tileSize,tileHalfLength,tileHalfWidth,{
+  resolution:reflectionSize,updateInterval:includeGround?0:100
+ });
  const edge=new T.Mesh(platformEdge(tileHalfLength,tileHalfWidth),createMarbleBorderMaterial());
  edge.name='Beveled platform edge';
  edge.castShadow=true;
@@ -58,22 +62,32 @@ export function createGateFloor(){
  floor.add(lining);
 
  let expansion=0;
+ const halfSize=new T.Vector2(tileHalfLength+rimWidth.x,tileHalfWidth+rimWidth.y);
  function resize(border){
   const size={columns:columns+2*border,rows:rows+2*border};
   if(border===expansion)return size;
   const x=size.columns*tileSize.x/2, y=size.rows*tileSize.y/2;
-  const groundGeometry=surround(x,y), tileGeometry=new T.ShapeGeometry(tiles(x,y)), edgeGeometry=platformEdge(x,y);
-  floor.geometry.dispose();
+  if(includeGround){
+   floor.geometry.dispose();
+   floor.geometry=surround(x,y);
+  }
   marble.geometry.dispose();
   edge.geometry.dispose();
-  floor.geometry=groundGeometry;
   // Keep the tile origin and reflection target fixed as tiles are added.
-  marble.geometry=tileGeometry;
-  edge.geometry=edgeGeometry;
+  marble.geometry=new T.ShapeGeometry(tiles(x,y));
+  edge.geometry=platformEdge(x,y);
+  halfSize.set(x+rimWidth.x,y+rimWidth.y);
   expansion=border;
   return size;
  }
- return {floor,resize};
+ function setPlatformHeight(height){
+  if(height===platformHeight)return;
+  if(includeGround)floor.geometry.translate(0,platformHeight-height,0);
+  platformHeight=height;
+  edge.geometry.dispose();
+  edge.geometry=platformEdge(halfSize.x-rimWidth.x,halfSize.y-rimWidth.y);
+ }
+ return {floor,resize,halfSize,setPlatformHeight};
 }
 
 function createChannel(length){

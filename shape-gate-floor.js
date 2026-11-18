@@ -53,21 +53,32 @@ export function createMarbleBorderMaterial(){
  return material;
 }
 
-export function createPolishedMarbleFloor(shape,tileSize,halfLength,halfWidth){
- const resolution=640;
+export function createPolishedMarbleFloor(shape,tileSize,halfLength,halfWidth,{resolution=640,updateInterval=0}={}){
  const floor=new Reflector(new T.ShapeGeometry(shape),{
   textureWidth:resolution,textureHeight:resolution,multisample:0,clipBias:.0005
  });
  floor.name='Polished marble tiles';
  floor.rotation.x=-Math.PI/2;
  floor.receiveShadow=true;
+ floor.getRenderTarget().isPlanarReflection=true;
  const planarReflection={value:1};
  const renderPlanarReflection=floor.onBeforeRender;
+ const reflectedView=new T.Matrix4(),reflectedProjection=new T.Matrix4(),reflectedFloor=new T.Matrix4();
+ let reflectedAt=-Infinity;
  floor.onBeforeRender=(renderer,scene,camera)=>{
-  // A cube capture sees the marble tiles without recursively rendering their mirror.
-  const cubeCapture=renderer.getRenderTarget()?.isWebGLCubeRenderTarget;
-  planarReflection.value=cubeCapture?0:1;
-  if(!cubeCapture)renderPlanarReflection.call(floor,renderer,scene,camera);
+  const target=renderer.getRenderTarget();
+  // Reflections see the tiles directly, without starting another capture.
+  const capturing=target?.isWebGLCubeRenderTarget||target?.isPlanarReflection;
+  planarReflection.value=capturing?0:1;
+  if(capturing)return;
+  const now=performance.now();
+  if(now-reflectedAt<updateInterval&&reflectedView.equals(camera.matrixWorld)&&
+     reflectedProjection.equals(camera.projectionMatrix)&&reflectedFloor.equals(floor.matrixWorld))return;
+  renderPlanarReflection.call(floor,renderer,scene,camera);
+  reflectedAt=now;
+  reflectedView.copy(camera.matrixWorld);
+  reflectedProjection.copy(camera.projectionMatrix);
+  reflectedFloor.copy(floor.matrixWorld);
  };
 
  const {tDiffuse,textureMatrix}=floor.material.uniforms;
