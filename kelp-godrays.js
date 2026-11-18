@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import {oceanShader} from './kelp-water.js';
+import {oceanShader,waterOpticsShader} from './kelp-water.js';
 import {createKelpSunlight,kelpSunlightShader} from './kelp-lighting.js';
 
 // The surface, backdrop and participating water share the same palette.
@@ -35,7 +35,7 @@ const mediumShader=`
       float h=p.y-waterTop-oceanHeight(p.xz,waterTime);
       if(h*initial<0.0){
         float lo=previous,hi=next;
-        for(int j=0;j<6;j++){float mid=(lo+hi)*.5;vec3 q=eye+d*mid;
+        for(int j=0;j<14;j++){float mid=(lo+hi)*.5;vec3 q=eye+d*mid;
           float side=q.y-waterTop-oceanHeight(q.xz,waterTime);
           if(side*initial>0.0)lo=mid;else hi=mid;}
         return (lo+hi)*.5;
@@ -95,6 +95,8 @@ export function createKelpGodrays(renderer,sunlight=createKelpSunlight()){
   const white=new THREE.DataTexture(new Uint8Array([255,255,255,255]),1,1,THREE.RGBAFormat);white.needsUpdate=true;
   const uniforms={
     sceneColor:{value:target.texture},sceneDepth:{value:target.depthTexture},
+    viewRight:{value:new THREE.Vector3(1,0,0)},viewUp:{value:new THREE.Vector3(0,1,0)},
+    surfaceRipples:{value:Array.from({length:8},()=>new THREE.Vector4(0,0,0,0))},refractionStrength:{value:1},glintStrength:{value:1},
     worldFromClip:{value:new THREE.Matrix4()},eye:{value:new THREE.Vector3()},
     waterTop:{value:10},floorY:{value:-1.75},waterTime:{value:0},
     ...createWaterGradientUniforms(),
@@ -183,11 +185,13 @@ export function createKelpGodrays(renderer,sunlight=createKelpSunlight()){
       ${waterGradientShader}
       #include <packing>
       ${sunShadowShader}
-      uniform float debugView,previewGain,bloomStrength;
+      uniform float debugView,previewGain,bloomStrength,refractionStrength,glintStrength;
+      uniform vec3 viewRight,viewUp,sunDirection,sunRadiance;
+      ${waterOpticsShader}
       uniform sampler2D sceneColor,volumeTexture,bloomTexture;
       uniform vec2 volumeSize;
-      vec3 upsampleVolume(float distanceToScene){
-        vec2 pixel=vUv*volumeSize-.5,base=floor(pixel+.5);
+      vec3 upsampleVolume(vec2 uv,float distanceToScene){
+        vec2 pixel=uv*volumeSize-.5,base=floor(pixel+.5);
         vec3 result=vec3(0.0);float total=0.0;
         for(int y=-1;y<=1;y++)for(int x=-1;x<=1;x++){
           vec2 offset=vec2(float(x),float(y));
@@ -206,7 +210,7 @@ export function createKelpGodrays(renderer,sunlight=createKelpSunlight()){
         vec3 end=worldAt(vUv,depth),delta=end-eye;
         float distanceToScene=length(delta);vec3 direction=delta/max(distanceToScene,.0001);
         vec2 segment=waterInterval(direction,distanceToScene);
-        vec3 scattering=upsampleVolume(distanceToScene);
+        vec3 scattering=upsampleVolume(vUv,distanceToScene);
         if(debugView>3.5){gl_FragColor=vec4(scattering,1.0);return;}
         if(debugView>.5&&debugView<1.5){
           gl_FragColor=vec4(vec3(sunVisibility(end)),1.0);return;
@@ -237,15 +241,35 @@ export function createKelpGodrays(renderer,sunlight=createKelpSunlight()){
         float hit=surfaceDistance(direction,distanceToScene);
         if(hit<distanceToScene-.001){
           vec3 point=eye+direction*hit;
-          vec3 n=oceanNormal(point.xz,waterTime);
+          vec3 n=waterOpticalNormal(point.xz,waterTime);
           vec3 lens=worldAt(vUv,0.0);
           bool above=lens.y>waterTop+oceanHeight(lens.xz,waterTime);
           float cosine=clamp(abs(dot(-direction,n)),0.0,1.0);
-          float fresnel=.02+.98*pow(1.0-cosine,5.0);
+          float fresnel=waterFresnel(cosine);
           if(above){
-            // The scene below remains visible through the reflective skin.
-            vec3 below=color*transmission+ambient*(1.0-transmission)+scattering;
-            color=mix(below,oceanSky(reflect(direction,n)),fresnel);
+            // Distort only the underwater layer. Project the normal onto the
+            // camera axes so refraction stays coherent when the camera orbits.
+            float submergedDepth=max(0.0,point.y-end.y);
+            vec2 distortion=vec2(dot(vec3(n.x,0.0,n.z),viewRight),dot(vec3(n.x,0.0,n.z),viewUp))*.012*
+              mix(.45,1.0,1.0-cosine)*smoothstep(.08,.35,cosine)*smoothstep(0.0,.65,submergedDepth)*refractionStrength;
+            vec2 refractedUv=clamp(vUv+distortion,vec2(.001),vec2(.999));
+            float refractedDepth=texture2D(sceneDepth,refractedUv).r;
+            vec3 refractedEnd=worldAt(refractedUv,refractedDepth);
+            // Reject samples from objects in front of, or protruding above,
+            // the water. These otherwise smear onto submerged silhouettes.
+            if(refractedEnd.y>waterTop+.20||length(refractedEnd-eye)<hit){
+              refractedUv=vUv;refractedEnd=end;
+            }
+            vec3 refractedDirection=refract(direction,n,1.0/1.333);
+            float path=max(0.0,point.y-refractedEnd.y)/max(.10,-refractedDirection.y);
+            path=min(path,60.0);
+            vec3 underwaterTransmission=exp(-sigmaT*path);
+            underwaterTransmission*=exp(-pow(max(0.0,path-18.0)*.045,2.0));
+            vec3 waterAmbient=waterGradient(refractedDirection)*mix(.28,.65,smoothstep(4.0,26.0,path));
+            vec3 below=texture2D(sceneColor,refractedUv).rgb*underwaterTransmission+
+              waterAmbient*(1.0-underwaterTransmission)+upsampleVolume(refractedUv,length(refractedEnd-eye));
+            color=mix(below,oceanReflection(reflect(direction,n)),fresnel);
+            color+=sunRadiance*waterSunGlint(n,-direction,sunDirection)*sunVisibility(point)*glintStrength;
             transmission=vec3(1.0);ambient=vec3(0.0);scattering=vec3(0.0);
           }else{
             float internal=1.0-smoothstep(.64,.70,cosine);
@@ -272,11 +296,16 @@ export function createKelpGodrays(renderer,sunlight=createKelpSunlight()){
   return {
     resetHistory(){historyValid=false;},
     getDiagnostics(){return {sceneTarget:target,volumeTarget:volumes[1-writeIndex],shadowMatrix:uniforms.sunShadowMatrix.value.clone(),shadowTexture:uniforms.sunShadow.value,historyWeight:uniforms.historyWeight.value};},
-    render(scene,camera,draw,{top,bottom,time,sun,focus,debugView=0,previewGain=1,scatteringStrength=1,bloomStrength=1,shaftStrength=1}){
+    render(scene,camera,draw,{top,bottom,time,sun,focus,debugView=0,previewGain=1,scatteringStrength=1,bloomStrength=1,shaftStrength=1,refractionStrength=1,glintStrength=1,surfaceRipples=null}){
+      camera.updateMatrixWorld();
+      uniforms.refractionStrength.value=refractionStrength;uniforms.glintStrength.value=glintStrength;
+      if(surfaceRipples)uniforms.surfaceRipples.value=surfaceRipples;
+      uniforms.viewRight.value.setFromMatrixColumn(camera.matrixWorld,0);
+      uniforms.viewUp.value.setFromMatrixColumn(camera.matrixWorld,1);
       uniforms.debugView.value=debugView;
       uniforms.previewGain.value=previewGain;
       uniforms.shaftStrength.value=shaftStrength;uniforms.scatteringStrength.value=scatteringStrength;uniforms.bloomStrength.value=bloomStrength;
-      camera.updateMatrixWorld();renderer.getDrawingBufferSize(size);
+      renderer.getDrawingBufferSize(size);
       if(size.x<1||size.y<1){historyValid=false;return;}
       if(target.width!==size.x||target.height!==size.y){
         target.setSize(size.x,size.y);

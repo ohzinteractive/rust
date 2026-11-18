@@ -4,9 +4,8 @@ import {createKelpParticles} from './kelp-particles.js';
 import {createKelpBubbles} from './kelp-bubbles.js';
 import {createKelpSediment} from './kelp-sediment.js';
 import {seededRandom} from './plume-lsystem/random.js';
-import {createKelpGodrays,waterGradientShader,createWaterGradientUniforms} from './kelp-godrays.js';
-import {causticShader} from './kelp-caustics.js';
-import {createKelpSunlight,configureKelpSunlight,kelpSunlightShader,kelpSunSlope} from './kelp-lighting.js';
+import {createKelpGodrays,createWaterGradientUniforms} from './kelp-godrays.js';
+import {createKelpSunlight,configureKelpSunlight,kelpSunSlope} from './kelp-lighting.js';
 import {createKelpSeabed,createSeabedStoneGeometry,createSeabedStoneMaterial,seabedHeight} from './kelp-seabed.js';
 
 export function createKelpEnvironment({scene,ground,shadow,key,rim,fill,skyLight,renderer,focus=null,kelp=null,fish=null,sunlight=createKelpSunlight()}){
@@ -14,47 +13,17 @@ export function createKelpEnvironment({scene,ground,shadow,key,rim,fill,skyLight
   const time={value:0},lightFocus=sunlight.waterLightFocus,random=seededRandom(2901);
   const sunSlope=new THREE.Vector3(kelpSunSlope.x,1,kelpSunSlope.z);
   const waterGradientUniforms=createWaterGradientUniforms(),waterColor=waterGradientUniforms.waterDeep.value;
-  const surfaceMaterial=new THREE.ShaderMaterial({side:THREE.DoubleSide,
-    uniforms:{waterTime:time,...sunlight,...waterGradientUniforms},
-    vertexShader:`uniform float waterTime;varying vec3 vWater;varying vec3 vWorld;
-      void main(){vec3 p=position;
-      p.z+=sin(p.x*.8+waterTime*.65)*.035+sin(p.y*1.1-waterTime*.43)*.025;
-      vWater=vec3(p.xy,0.0);vec4 world=modelMatrix*vec4(p,1.0);vWorld=world.xyz;
-      gl_Position=projectionMatrix*viewMatrix*world;}`,
-    fragmentShader:`uniform float waterTime;varying vec3 vWater;varying vec3 vWorld;
-      ${kelpSunlightShader}
-      ${causticShader}
-      ${waterGradientShader}
-      void main(){vec2 p=vWorld.xz-vWorld.y*waterSunSlope();
-      vec2 lace=waterCaustics(p*.65,waterTime,.6,.006);
-      float waves=sin(p.x*.65+waterTime*.4)*sin(p.y*.8-waterTime*.3)*.5+.5;
-      vec3 viewDir=normalize(cameraPosition-vWorld);float window=pow(abs(viewDir.y),2.0);
-      vec3 color=waterGradient(-viewDir)+vec3(.04,.10,.09)*window;
-      float horizonFade=mix(.03,.12,smoothstep(.025,.45,abs(viewDir.y)));
-      float distanceFade=exp(-length(cameraPosition-vWorld)*.025);
-      color+=((vec3(.035,.055,.05)*lace.x+vec3(.012,.025,.03)*lace.y)*horizonFade+waves*.008)*distanceFade;
-      float sunAngle=max(0.0,dot(-viewDir,waterSunDirection));
-      float core=pow(sunAngle,90.0),halo=pow(sunAngle,18.0);
-      float aperture=waterSunWindow(vWorld);
-      color+=vec3(1.25,.92,.56)*((core*9.0+halo*.65)*aperture+aperture*1.6);
-      gl_FragColor=vec4(color,1.0);
-      #include <tonemapping_fragment>
-      #include <colorspace_fragment>
-      }`});
-  const surface=new THREE.Mesh(new THREE.PlaneGeometry(180,180,96,96),surfaceMaterial);
-  surface.name='Rippling water surface';surface.rotation.x=-Math.PI/2;surface.frustumCulled=false;group.add(surface);
-  // A direction-based backdrop meets the distant seabed at the fog colour,
-  // including when orbiting. A screen gradient would leave a hard horizon.
+  // The compositor owns the water boundary; only its world height is needed here.
+  let surfaceY=ground.position.y;
+  // Direction-based sky stays fixed as the camera moves through the surface.
   const backdropMaterial=new THREE.ShaderMaterial({side:THREE.BackSide,depthWrite:false,toneMapped:false,
-    uniforms:waterGradientUniforms,
     vertexShader:`varying vec3 vDirection;void main(){vDirection=position;gl_Position=projectionMatrix*vec4(mat3(viewMatrix)*position,1.0);gl_Position.z=gl_Position.w*.99999;}`,
     fragmentShader:`varying vec3 vDirection;
-      ${waterGradientShader}
       ${oceanShader}
       void main(){gl_FragColor=vec4(oceanSky(vDirection),1.0);
       #include <colorspace_fragment>
       }`});
-  const backdrop=new THREE.Mesh(new THREE.SphereGeometry(1,24,16),backdropMaterial);backdrop.name='Water depth gradient';backdrop.frustumCulled=false;backdrop.renderOrder=-10;group.add(backdrop);
+  const backdrop=new THREE.Mesh(new THREE.SphereGeometry(1,24,16),backdropMaterial);backdrop.name='Ocean sky';backdrop.frustumCulled=false;backdrop.renderOrder=-10;group.add(backdrop);
   const sediment=createKelpSediment({parent:group});
   const seabed=createKelpSeabed({sunlight,time}),sand=seabed.material;
   const rockMaterial=createSeabedStoneMaterial({sunlight,time});
@@ -106,6 +75,22 @@ export function createKelpEnvironment({scene,ground,shadow,key,rim,fill,skyLight
   }
   const schoolLight=new THREE.SpotLight(0xd9f4dc,16,28,.48,.85,1.5);
   schoolLight.name='Cool reflected light on the shoal';group.add(schoolLight,schoolLight.target);
+  const surfaceRipples=Array.from({length:8},()=>new THREE.Vector4(0,0,0,0));
+  let rippleSlot=0,rippleFish=0,lastRipple=-1;
+  function updateSurfaceRipples(){
+    if(time.value<lastRipple){for(const ripple of surfaceRipples)ripple.set(0,0,0,0);lastRipple=-1;}
+    if(time.value-lastRipple<.65)return;
+    lastRipple=time.value;
+    const count=fish?.settings.count??0;
+    for(let j=0;j<count;j++){
+      const index=(rippleFish+j)%count,f=fish.inspectFish(index);
+      if(!f)continue;
+      const depth=surfaceY-f.position[1],speed=Math.hypot(...f.velocity);
+      if(depth<0||depth>.38||speed<.12)continue;
+      surfaceRipples[rippleSlot].set(f.position[0],f.position[2],time.value,.007*(1-depth/.38));
+      rippleSlot=(rippleSlot+1)%surfaceRipples.length;rippleFish=(index+1)%count;break;
+    }
+  }
   const godrays=renderer?createKelpGodrays(renderer,sunlight):null;
   let lightingView='final',lightingPreviewGain=1;
   const lightingDefaults={sunlight:1.72,ambient:.16,scattering:2.81,shadows:.96,bloom:2.96};
@@ -129,34 +114,30 @@ export function createKelpEnvironment({scene,ground,shadow,key,rim,fill,skyLight
     schoolLight.target.updateMatrixWorld();
     if(saved){
       key.target.position.copy(lightFocus.value);
-      const rise=surface.position.y+5-lightFocus.value.y;
+      const rise=surfaceY+5-lightFocus.value.y;
       key.position.copy(lightFocus.value).addScaledVector(sunSlope,rise);
       key.target.updateMatrixWorld();
     }
   }
   function setHeight(height){
-    const depth=height+.25;surface.position.y=ground.position.y+depth;waterHeight.value=depth;
-    sunlight.waterSurface.value=surface.position.y;
+    const depth=height+.25;surfaceY=ground.position.y+depth;waterHeight.value=depth;
+    sunlight.waterSurface.value=surfaceY;
     updateFocus();
   }
-  const bubbles=createKelpBubbles({parent:group,floorHeight:(x,z)=>ground.position.y+seabed.heightAt(x,z),surfaceHeight:()=>surface.position.y,fish,sun:key,sunlight});
+  const bubbles=createKelpBubbles({parent:group,floorHeight:(x,z)=>ground.position.y+seabed.heightAt(x,z),surfaceHeight:()=>surfaceY,fish,sun:key,sunlight});
   setHeight(7);
-  return {group,surface,bubbles,particles,render(camera,draw,elapsed){
+  return {group,bubbles,particles,render(camera,draw,elapsed){
     if(Number.isFinite(elapsed))time.value=elapsed;
     if(!saved||!godrays){draw();return;}
     syncSeabed();
-    updateFocus();
+    updateFocus();updateSurfaceRipples();
     const indirect=[rim,fill,skyLight,schoolLight],intensities=indirect.map(light=>light.intensity),environment=scene.environmentIntensity,sunIntensity=key.intensity,shadowIntensity=key.shadow.intensity;
-    const surfaceVisible=surface.visible;
     try{
-      // The compositor resolves the wave boundary at full resolution; omitting
-      // this mesh preserves the depth of fish and kelp seen through the water.
-      surface.visible=false;
       key.intensity=sunIntensity*lightingSettings.sunlight;key.shadow.intensity=shadowIntensity*lightingSettings.shadows;
       indirect.forEach((light,i)=>{light.intensity=intensities[i]*lightingSettings.ambient;});scene.environmentIntensity=environment*lightingSettings.ambient;
       if(lightingView==='direct'){indirect.forEach(light=>{light.intensity=0;});scene.environmentIntensity=0;}
-      godrays.render(scene,camera,draw,{top:surface.position.y,bottom:ground.position.y,time:time.value,sun:key,focus:lightFocus.value,debugView:lightingViews[lightingView],previewGain:lightingPreviewGain,scatteringStrength:lightingSettings.scattering,bloomStrength:lightingSettings.bloom});
-    }finally{surface.visible=surfaceVisible;key.intensity=sunIntensity;key.shadow.intensity=shadowIntensity;indirect.forEach((light,i)=>{light.intensity=intensities[i];});scene.environmentIntensity=environment;}
+      godrays.render(scene,camera,draw,{top:surfaceY,bottom:ground.position.y,time:time.value,sun:key,focus:lightFocus.value,debugView:lightingViews[lightingView],previewGain:lightingPreviewGain,scatteringStrength:lightingSettings.scattering,bloomStrength:lightingSettings.bloom,surfaceRipples});
+    }finally{key.intensity=sunIntensity;key.shadow.intensity=shadowIntensity;indirect.forEach((light,i)=>{light.intensity=intensities[i];});scene.environmentIntensity=environment;}
   },setLightingView(view){
     if(!Object.hasOwn(lightingViews,view))throw new RangeError('Unknown lighting view');
     lightingView=view;godrays?.resetHistory();
@@ -174,7 +155,7 @@ export function createKelpEnvironment({scene,ground,shadow,key,rim,fill,skyLight
   },advanceImpact(dt){if(!saved)return false;const sandMoved=seabed.advance(dt),dustMoved=sediment.advance(dt);return sandMoved||dustMoved;
   },advanceBubbles(dt){if(!saved)return false;return bubbles.advance(dt);
   },floorHeight(x,z){return ground.position.y+seabed.heightAt(x,z);
-  },get surfaceY(){return surface.position.y;},get enabled(){return !!saved;},setHeight,advance(dt){if(saved)time.value+=Math.min(dt,.1);},setEnabled(enabled){
+  },get surfaceY(){return surfaceY;},get enabled(){return !!saved;},setHeight,advance(dt){if(saved)time.value+=Math.min(dt,.1);},setEnabled(enabled){
     if(!!saved!==!!enabled)godrays?.resetHistory();
     group.visible=enabled;
     if(enabled&&!saved){
@@ -205,5 +186,5 @@ export function createKelpEnvironment({scene,ground,shadow,key,rim,fill,skyLight
       if(renderer){renderer.shadowMap.type=saved.shadowType;renderer.shadowMap.needsUpdate=true;}
       skyLight.groundColor.copy(saved.groundColor);key.shadow.radius=saved.radius;key.shadow.normalBias=saved.normalBias;key.shadow.camera.copy(saved.shadowCamera);saved=null;
     }
-  },dispose(){particles.dispose();bubbles.dispose();sediment.dispose();godrays?.dispose();this.setEnabled(false);seabed.dispose();group.removeFromParent();for(const resource of [rocks,pebbles,shells,litter,shells.geometry,shellMaterial,litter.geometry,litterMaterial,surface.geometry,surfaceMaterial,backdrop.geometry,backdropMaterial,rockMaterial,rocks.geometry])resource.dispose();}};
+  },dispose(){particles.dispose();bubbles.dispose();sediment.dispose();godrays?.dispose();this.setEnabled(false);seabed.dispose();group.removeFromParent();for(const resource of [rocks,pebbles,shells,litter,shells.geometry,shellMaterial,litter.geometry,litterMaterial,backdrop.geometry,backdropMaterial,rockMaterial,rocks.geometry])resource.dispose();}};
 }

@@ -18,7 +18,7 @@ function setup(failure){
     getScissorTest:()=>scissorTest,setScissorTest:value=>{scissorTest=value;},
     render:scene=>{
       const m=scene.children[0].material;
-      passes.push({name:m.name,target,history:m.uniforms.historyWeight?.value,shadow:m.uniforms.sunShadow?.value,enabled:m.uniforms.shadowEnabled?.value,scattering:m.uniforms.scatteringStrength?.value,bloom:m.uniforms.bloomStrength?.value});
+      passes.push({name:m.name,target,ripples:m.uniforms.surfaceRipples?.value.map(v=>v.toArray()),history:m.uniforms.historyWeight?.value,shadow:m.uniforms.sunShadow?.value,enabled:m.uniforms.shadowEnabled?.value,scattering:m.uniforms.scatteringStrength?.value,bloom:m.uniforms.bloomStrength?.value});
       if(m.name===failure)throw Error('postprocess failed');
     },
   };
@@ -117,4 +117,22 @@ test('a zero-size frame cannot present an uninitialized volumetric buffer',()=>{
   sim.resize(0,0);sim.render(1.05);assert.equal(sim.passes.length,before);sim.checkRestored();
   sim.resize(800,600);sim.render(1.1);assert.equal(sim.passes.filter(p=>p.name==='Shadowed participating water').at(-1).history,0);
   sim.dispose();
+});
+
+
+test('surface ripples start empty, respond only to near-surface fish, and clear on time reset',()=>{
+  const sim=setup(),scene=new THREE.Scene();
+  const ground=new THREE.Mesh(new THREE.PlaneGeometry(20,20),new THREE.MeshStandardMaterial());ground.position.y=-1.75;
+  const shadow=new THREE.Object3D(),key=new THREE.DirectionalLight(),rim=new THREE.DirectionalLight(),fill=new THREE.DirectionalLight(),skyLight=new THREE.HemisphereLight();
+  let depth=2;
+  const fish={group:{visible:true},settings:{count:1},stats:{count:1},inspectFish:()=>({position:[1,water.surfaceY-depth,2],velocity:[.5,0,0]})};
+  const water=createKelpEnvironment({renderer:sim.renderer,scene,ground,shadow,key,rim,fill,skyLight,fish});water.setEnabled(true);
+  const ripples=()=>sim.passes.at(-1).ripples;
+  water.render(sim.camera,()=>{},0);assert(ripples().every(r=>r[3]===0),'Deep fish do not disturb the surface');
+  depth=.1;water.render(sim.camera,()=>{},.7);
+  assert.equal(ripples().filter(r=>r[3]>0).length,1);assert.deepEqual(ripples()[0].slice(0,3),[1,2,.7]);
+  assert(ripples()[0][3]<.007,'Surface disturbances remain small');
+  water.render(sim.camera,()=>{},.8);assert.equal(ripples().filter(r=>r[3]>0).length,1,'Emission is rate limited');
+  depth=2;water.render(sim.camera,()=>{},0);assert(ripples().every(r=>r[3]===0));
+  water.dispose();ground.geometry.dispose();ground.material.dispose();sim.dispose();
 });

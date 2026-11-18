@@ -8,7 +8,7 @@ export async function checkKelp({run,call,delay}){
   assert(await run("peelDebug.state.material==='kelp'&&peelDebug.kelp.group.visible&&peelDebug.kelpEnvironment.enabled&&!peelDebug.core.parent.visible&&!peelDebug.palm.group.visible&&!peelDebug.fern.group.visible"));
   assert(await run("document.getElementById('kelp-material').getAttribute('aria-pressed')==='true'&&!document.getElementById('kelp-controls').hidden&&document.getElementById('exposure-controls').hidden"));
   assert(await run('peelDebug.kelp.stats.blades>768&&peelDebug.kelp.stats.blades<1536&&peelDebug.kelp.stats.blades===peelDebug.kelp.stats.floats'));
-  assert(await run('peelDebug.kelpEnvironment.surfaceY===-1.75+11.25&&peelDebug.kelpEnvironment.surface.visible'),'Water surface aligns with the mature canopy');
+  assert(await run('peelDebug.kelpEnvironment.surfaceY===-1.75+11.25&&peelDebug.kelpEnvironment.enabled'),'Water surface aligns with the mature canopy');
   await checkSeabedFocus();
   await run('window.kelpPose=[peelDebug.camera.position.toArray(),peelDebug.controls.target.toArray()];window.kelpGeometry=peelDebug.kelp.group.children[1].geometry;document.getElementById("kelp-pause").click()');
   await delay(600);assert(await run('peelDebug.kelp.elapsed>0'));

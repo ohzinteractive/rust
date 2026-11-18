@@ -114,7 +114,7 @@ test('underwater mode restores the existing lighting, ground, fog and shadows',(
   const water=createKelpEnvironment({scene,ground,shadow,key,rim,fill,skyLight});
   for(let i=0;i<3;i++){
     water.setEnabled(true);water.setEnabled(true);water.setHeight(11);water.advance(.1);
-    assert.equal(water.surfaceY,ground.position.y+11.25);assert.equal(water.surface.name,'Rippling water surface');
+    assert.equal(water.surfaceY,ground.position.y+11.25);
     assert(water.enabled&&water.group.visible);assert.equal(shadow.visible,false);assert.notEqual(ground.material,original.material);assert.notEqual(ground.geometry,original.geometry);
     assert(key.position.clone().sub(key.target.position).normalize().distanceTo(new THREE.Vector3(kelpSunSlope.x,1,kelpSunSlope.z).normalize())<1e-8,'Surface light and volume share the same sun direction at every height');
     water.setEnabled(false);water.setEnabled(false);
