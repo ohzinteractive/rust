@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import {seededRandom} from './plume-lsystem/random.js';
 import {createKelpAvoidance} from './kelp-avoidance.js';
+import {fishSpecies,speciesForFish,fishBodyProfile,addFishSpeciesGeometry,fishSpeciesVertexGLSL,fishSpeciesPigmentGLSL,fishMarkingsGLSL} from './fish-species.js';
+import {createFishScaleLife,fishScaleLifeGLSL} from './fish-scale-life.js';
 import {createKelpSunlight,kelpSunlightShader} from './kelp-lighting.js';
 import {sunShadowShader} from './kelp-godrays.js';
 
@@ -9,19 +11,19 @@ const capacity=500,fragmentCapacity=160,step=1/30,cellSize=1.6;
 const cellKey=(x,y,z)=>(x+32)+(y+32)*64+(z+32)*4096;
 
 function fishGeometry(){
-  const p=[],n=[],c=[],skin=[];
+  const p=[],n=[],c=[],skin=[],parts=[];
   const silver=new THREE.Color(0xb7cbd0),back=new THREE.Color(0x234b58),belly=new THREE.Color(0xd5dfdc),fin=new THREE.Color(0x72949f),eye=new THREE.Color(0x07191c);
-  function append(geometry,color,scales=0){
+  function append(geometry,color,scales=0,part=scales>0?1:0){
     const positions=geometry.attributes.position,normals=geometry.attributes.normal,index=geometry.index;
     for(let i=0;i<(index?.count??positions.count);i++){
       const k=index?index.getX(i):i,x=positions.getX(k),y=positions.getY(k),z=positions.getZ(k);
-      p.push(x,y,z);n.push(normals.getX(k),normals.getY(k),normals.getZ(k));skin.push(scales);
+      p.push(x,y,z);n.push(normals.getX(k),normals.getY(k),normals.getZ(k));skin.push(scales);parts.push(part);
       const shade=typeof color==='function'?color(y,x,z):color;c.push(shade.r,shade.g,shade.b);
     }
     geometry.dispose();
   }
   // An elongated body with a narrow caudal peduncle and a tapered snout.
-  const profile=[[-.26,0,0],[-.225,.012,.010],[-.16,.038,.025],[-.07,.060,.039],[.035,.069,.046],[.13,.056,.039],[.205,.033,.026],[.254,.012,.010],[.275,0,0]];
+  const profile=fishBodyProfile;
   const interpolant=new THREE.CubicInterpolant(Float32Array.from(profile,r=>r[0]),Float32Array.from(profile.flatMap(r=>r.slice(1))),2);
   const positions=[],indices=[],rows=28,sides=16;
   for(let row=0;row<=rows;row++){
@@ -56,17 +58,19 @@ function fishGeometry(){
     pectoral.quadraticCurveTo(-.024,.042,.07,-.008);pectoral.closePath();
     membrane(pectoral,g=>{g.rotateX(side*1.05);g.translate(0,-.018,side*.025);});
     for(const [rx,ry,rz,x,y,z,color] of [[.010,.009,.0028,.185,.015,side*.0305,new THREE.Color(0x819b9f)],[.006,.0065,.0018,.185,.015,side*.0333,eye],[.0018,.0018,.0008,.188,.018,side*.0352,new THREE.Color(0xd9e6e3)]]){
-      const e=new THREE.SphereGeometry(1,10,6);e.scale(rx,ry,rz);e.translate(x,y,z);append(e,color);
+      const e=new THREE.SphereGeometry(1,10,6);e.scale(rx,ry,rz);e.translate(x,y,z);append(e,color,0,2);
     }
   }
-  const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.Float32BufferAttribute(p,3));geometry.setAttribute('normal',new THREE.Float32BufferAttribute(n,3));geometry.setAttribute('color',new THREE.Float32BufferAttribute(c,3));geometry.setAttribute('fishSkin',new THREE.Float32BufferAttribute(skin,1));
+  const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.Float32BufferAttribute(p,3));geometry.setAttribute('normal',new THREE.Float32BufferAttribute(n,3));geometry.setAttribute('color',new THREE.Float32BufferAttribute(c,3));geometry.setAttribute('fishSkin',new THREE.Float32BufferAttribute(skin,1));geometry.setAttribute('fishPart',new THREE.Float32BufferAttribute(parts,1));
   return geometry;
 }
 
 export function createKelpFish({scene,kelp,floorY=-1.75,sun=null,sunlight=createKelpSunlight()}){
   const group=new THREE.Group();group.name='Kelp fish school';group.visible=false;scene.add(group);
+  const scaleLife=createFishScaleLife();
   const settings={...defaultFishSettings},time={value:0},swim=new THREE.InstancedBufferAttribute(new Float32Array(capacity*2),2);
-  const geometry=fishGeometry();geometry.setAttribute('fishSwim',swim);
+  const geometry=fishGeometry();addFishSpeciesGeometry(geometry);geometry.setAttribute('fishSwim',swim);
+  const species=new THREE.InstancedBufferAttribute(new Float32Array(capacity),1);geometry.setAttribute('fishSpecies',species);
   const appearance=new THREE.InstancedBufferAttribute(new Float32Array(capacity),1);geometry.setAttribute('fishRoughness',appearance);
   const material=new THREE.MeshPhysicalMaterial({vertexColors:true,side:THREE.DoubleSide,metalness:.50,roughness:.30,clearcoat:.16,clearcoatRoughness:.24,envMapIntensity:1.0});
   const white=new THREE.DataTexture(new Uint8Array([255,255,255,255]),1,1);white.needsUpdate=true;
@@ -76,22 +80,30 @@ export function createKelpFish({scene,kelp,floorY=-1.75,sun=null,sunlight=create
     m.onBeforeCompile=shader=>{
       shader.uniforms.fishTime=time;
       shader.vertexShader=shader.vertexShader.replace('#include <common>',`#include <common>
-        attribute vec2 fishSwim;uniform float fishTime;`)
+        attribute vec2 fishSwim;uniform float fishTime;
+        ${fishSpeciesVertexGLSL}`)
+        .replace('#include <beginnormal_vertex>',`#include <beginnormal_vertex>
+        objectNormal=fishSpeciesNormal(objectNormal);`)
         .replace('#include <begin_vertex>',`#include <begin_vertex>
+        transformed=fishSpeciesPosition(position);
+        vec2 tailTraits=fishTailTraits();
         float tail=pow(max(0.0,-position.x+.08)/.5,2.0);
-        transformed.z+=sin(fishTime*(7.0+fishSwim.y*5.0)+fishSwim.x+position.x*8.0)*tail*.075;`);
+        transformed.z+=sin(fishTime*(7.0+fishSwim.y*5.0)*tailTraits.x+fishSwim.x+position.x*8.0)*tail*.075*tailTraits.y;`);
       if(m===material){
-        Object.assign(shader.uniforms,rimUniforms);
+        Object.assign(shader.uniforms,rimUniforms,scaleLife.uniforms);
         shader.vertexShader=shader.vertexShader.replace('#include <common>',`#include <common>
-          attribute float fishRoughness,fishSkin;varying float vFishRoughness,vFishSkin;varying vec3 vFishSurface,vFishWorld;`)
+          attribute float fishRoughness,fishSkin,fishPart;varying float vFishRoughness,vFishSkin,vFishPart,vFishSpecies;varying vec3 vFishSurface,vFishWorld;varying vec4 vFishBody;`)
           .replace('#include <project_vertex>',`#include <project_vertex>
-          vFishWorld=(modelMatrix*instanceMatrix*vec4(transformed,1.0)).xyz;`)
+          vFishWorld=(modelMatrix*instanceMatrix*vec4(transformed,1.0)).xyz;
+          vFishBody=vec4((modelMatrix*instanceMatrix*vec4(0.0,0.0,0.0,1.0)).xyz,length(instanceMatrix[0].xyz));`)
           .replace('#include <begin_vertex>',`#include <begin_vertex>
-          vFishRoughness=fishRoughness;vFishSkin=fishSkin;vFishSurface=position;`);
+          vFishRoughness=fishRoughness;vFishSkin=fishSkin;vFishPart=fishPart;vFishSpecies=fishSpecies;vFishSurface=position;`);
         shader.fragmentShader=shader.fragmentShader.replace('#include <common>',`#include <common>
-          varying float vFishRoughness,vFishSkin;varying vec3 vFishSurface,vFishWorld;
+          varying float vFishRoughness,vFishSkin,vFishPart,vFishSpecies;varying vec3 vFishSurface,vFishWorld;varying vec4 vFishBody;
           uniform vec3 fishSunRadiance;uniform float fishRimGain;
-          ${kelpSunlightShader}`)
+          ${kelpSunlightShader}
+          ${fishScaleLifeGLSL}
+          ${fishMarkingsGLSL}`)
           .replace('#include <lights_physical_pars_fragment>',`#include <lights_physical_pars_fragment>
           ${sunShadowShader.replace('sunTexel*shadowRadius*.5','sunTexel*min(shadowRadius,2.0)*.5')}`)
           .replace('#include <color_fragment>',`#include <color_fragment>
@@ -107,7 +119,12 @@ export function createKelpFish({scene,kelp,floorY=-1.75,sun=null,sunlight=create
           float scaleArc=length(vec2(scaleCell.x+.18,scaleCell.y*.92));
           float scaleLip=(1.0-smoothstep(.025,.085,abs(scaleArc-.48)))*smoothstep(-.25,.08,scaleCell.x);
           float scaleDome=max(0.0,1.0-dot(scaleCell*vec2(1.55,2.0),scaleCell*vec2(1.55,2.0)));
-          float scaleRelief=(scaleDome*.00012+scaleLip*.00006)*scaleMask*scaleResolved;
+          vec2 fishColony=fishScaleColony(floor(vec2(scaleUV.x+mod(floor(scaleUV.y),2.0)*.5,scaleUV.y)),vFishSpecies,vFishRoughness);
+          ${fishSpeciesPigmentGLSL}
+          float colonyMask=scaleMask*scaleResolved*step(.5,vFishSpecies);
+          float scaleRelief=(scaleDome*.00016+scaleLip*.000085)*scaleMask*scaleResolved*mix(.8,1.4,fishColony.y);
+          diffuseColor.rgb*=1.0+(fishColony.x-.45)*.19*colonyMask;
+          diffuseColor.rgb=mix(diffuseColor.rgb,diffuseColor.rgb*vec3(.82,.96,1.02),fishColony.y*colonyMask*.25);
           diffuseColor.rgb*=1.0+fishPigment*.015+(scaleDome*.02-scaleLip*.025)*scaleMask*scaleResolved;
           float tailFin=1.0-smoothstep(-.245,-.20,vFishSurface.x);
           float finMask=(1.0-vFishSkin)*max(tailFin,max(smoothstep(.075,.095,abs(vFishSurface.y)),smoothstep(.060,.080,abs(vFishSurface.z))));
@@ -125,15 +142,22 @@ export function createKelpFish({scene,kelp,floorY=-1.75,sun=null,sunlight=create
           .replace('#include <roughnessmap_fragment>',`#include <roughnessmap_fragment>
           float scaleGloss=clamp(roughnessFactor+vFishRoughness*.6+fishPigment*.025
             -scaleLip*.022*scaleMask*scaleResolved+.045*(1.0-scaleResolved),.23,.42);
+          scaleGloss+=vFishSpecies>1.5&&vFishSpecies<2.5?.20:0.0;
+          scaleGloss+=(fishColony.y*.05-fishColony.x*.035)*colonyMask;
           roughnessFactor=mix(.50,scaleGloss,vFishSkin);`)
           .replace('#include <metalnessmap_fragment>',`#include <metalnessmap_fragment>
-          metalnessFactor=mix(.08,metalnessFactor,vFishSkin);`)
+          float speciesMetal=vFishSpecies<.5?metalnessFactor:(vFishSpecies<1.5?.20:(vFishSpecies<2.5?.015:.15));
+          metalnessFactor=mix(.08,speciesMetal,vFishSkin);`)
           .replace('#include <normal_fragment_maps>',`#include <normal_fragment_maps>
           vec3 fishDx=dFdx(-vViewPosition),fishDy=dFdy(-vViewPosition);
           vec3 fishRx=cross(fishDy,normal),fishRy=cross(normal,fishDx);
           float fishDet=dot(fishDx,fishRx);
-          normal=normalize(abs(fishDet)*normal-sign(fishDet)*
-            (dFdx(scaleRelief)*fishRx+dFdy(scaleRelief)*fishRy));`)
+          vec3 fishGradient=dFdx(scaleRelief)*fishRx+dFdy(scaleRelief)*fishRy;
+          if(abs(fishDet)>1e-12){
+            vec3 perturbed=normal-sign(fishDet)*fishGradient/max(abs(fishDet),1e-8);
+            float normalLength=dot(perturbed,perturbed);
+            if(normalLength>1e-12&&normalLength<1e12)normal=perturbed*inversesqrt(normalLength);
+          }`)
           .replace('#include <lights_physical_fragment>',`#include <lights_physical_fragment>
           #ifdef USE_CLEARCOAT
             material.clearcoat*=vFishSkin;
@@ -143,13 +167,17 @@ export function createKelpFish({scene,kelp,floorY=-1.75,sun=null,sunlight=create
           float fishRim=pow(1.0-clamp(dot(normal,normalize(vViewPosition)),0.0,1.0),3.0);
           float litEdge=smoothstep(-.2,.65,dot(fishWorldNormal,waterSunDirection));
           float visibility=sunVisibility(vFishWorld+waterSunDirection*.05);
+          // A little transmitted sunlight keeps thin, pigmented bodies readable
+          // in backlight. It uses the same water attenuation and real shadows.
+          float transmissionVisibility=sunVisibility(vFishBody.xyz+waterSunDirection*(vFishBody.w*.48+.03));
+          reflectedLight.directDiffuse+=fishSpeciesBacklight*fishSunRadiance*waterSunTransmission(vFishWorld)*transmissionVisibility;
           reflectedLight.directSpecular+=fishSunRadiance*waterSunTransmission(vFishWorld)*vec3(.58,.80,.95)*
             (fishRim*litEdge*visibility*fishRimGain*vFishSkin);`);
       }
     };
-    m.customProgramCacheKey=()=>m===depth?'fish-tail-depth-v1':'fish-streamlined-anatomy-v5';
+    m.customProgramCacheKey=()=>m===depth?'fish-community-depth-v4':'fish-natural-disc-anatomy-v11';
   }
-  const mesh=new THREE.InstancedMesh(geometry,material,capacity);mesh.name='Schooling silver fish';mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);mesh.frustumCulled=false;mesh.castShadow=true;mesh.receiveShadow=true;mesh.customDepthMaterial=depth;group.add(mesh);
+  const mesh=new THREE.InstancedMesh(geometry,material,capacity);mesh.name='Mixed schooling fish';mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);mesh.frustumCulled=false;mesh.castShadow=true;mesh.receiveShadow=true;mesh.customDepthMaterial=depth;group.add(mesh);
   mesh.onBeforeRender=()=>{
     const shadow=sun?.shadow;
     rimUniforms.sunShadow.value=shadow?.map?.texture??white;rimUniforms.shadowEnabled.value=sun?.castShadow&&shadow?.map?1:0;
@@ -158,15 +186,17 @@ export function createKelpFish({scene,kelp,floorY=-1.75,sun=null,sunlight=create
   };
   material.userData.fishRimGain=rimUniforms.fishRimGain;
   material.userData.fishSunRadiance=rimUniforms.fishSunRadiance;
+  material.userData.scaleLife=scaleLife;
   const fragments=new THREE.InstancedMesh(new THREE.IcosahedronGeometry(.035,0),new THREE.MeshStandardMaterial({color:0x819442,roughness:.85}),fragmentCapacity);
   fragments.name='Bitten kelp fragments';fragments.instanceMatrix.setUsage(THREE.DynamicDrawUsage);fragments.frustumCulled=false;fragments.visible=false;group.add(fragments);
-  const fish=Array.from({length:capacity},()=>({p:new THREE.Vector3(),previous:new THREE.Vector3(),v:new THREE.Vector3(),force:new THREE.Vector3(),face:new THREE.Vector3(1,0,0),previousFace:new THREE.Vector3(1,0,0),wander:new THREE.Vector3(),wanderWait:0,foliageSpeed:1,target:-1,cooldown:0,biteWait:0,huntTime:0,bites:0,size:1,phase:0}));
+  const fish=Array.from({length:capacity},()=>({p:new THREE.Vector3(),previous:new THREE.Vector3(),v:new THREE.Vector3(),force:new THREE.Vector3(),face:new THREE.Vector3(1,0,0),previousFace:new THREE.Vector3(1,0,0),wander:new THREE.Vector3(),wanderWait:0,foliageSpeed:1,orbitCheck:new THREE.Vector3(),orbitTime:0,detourTime:0,target:-1,cooldown:0,biteWait:0,huntTime:0,bites:0,size:1,phase:0,kind:0}));
   const debris=Array.from({length:fragmentCapacity},()=>({p:new THREE.Vector3(),v:new THREE.Vector3(),age:10,spin:0}));
   const grid=new Map(),buckets=[],claimed=new Map(),dummy=new THREE.Object3D(),basis=new THREE.Matrix4(),up=new THREE.Vector3(),side=new THREE.Vector3(),facing=new THREE.Vector3(),target=new THREE.Vector3(),candidate=new THREE.Vector3(),mouth=new THREE.Vector3();
   const schoolHeading=new THREE.Vector3(1,0,0);
-  const shapeNormal=new THREE.Vector3(),shapeProbe=new THREE.Vector3();
+  const shapeNormal=new THREE.Vector3(),shapeProbe=new THREE.Vector3(),orbitTangent=new THREE.Vector3();
   const kelpNormal=new THREE.Vector3(),kelpTangent=new THREE.Vector3(),avoidance=createKelpAvoidance(kelp);
   let attractor=null,roaming=false,terrainHeight=null;
+  function cruisingSpeed(f){return (.9+f.size*.3)*settings.speed*fishSpecies[f.kind].speed;}
   function floorAt(point,padding=.25){
     const terrain=terrainHeight?.(point.x,point.z);
     return Math.max(floorY,Number.isFinite(terrain)?terrain:floorY)+padding;
@@ -191,6 +221,7 @@ export function createKelpFish({scene,kelp,floorY=-1.75,sun=null,sunlight=create
     attractor=value;if(attractor?.active)roaming=false;avoidance.update();
     for(let i=0;i<settings.count;i++){
       const f=fish[i];if(attractor?.active&&f.target>=0)release(f);keepClear(f,true);
+      f.orbitCheck.copy(f.p);f.orbitTime=(i%23)/23*2.5;f.detourTime=0;
     }
     updateMeshes();
   }
@@ -203,10 +234,25 @@ export function createKelpFish({scene,kelp,floorY=-1.75,sun=null,sunlight=create
     }
     f.wanderWait=3+random()*5;
   }
+  function pickOrbitDetour(f,clearance){
+    const dx=f.p.x-attractor.center.x,dz=f.p.z-attractor.center.z,angle=Math.atan2(dz,dx);
+    orbitTangent.set(-Math.sin(angle),0,Math.cos(angle));
+    const nearby=avoidance.nearest(f.p,clearance+1.5,kelpNormal);
+    if(!Number.isFinite(nearby))kelpNormal.set(Math.cos(angle),0,Math.sin(angle));
+    // Commit to an elevated opening for several seconds instead of switching
+    // sides at each leaf contact. No position changes bypass collision checks.
+    for(const rise of [1.0,1.8,2.7])for(const distance of [1.4,2.3])for(const lateral of [0,1,-1]){
+      shapeProbe.copy(f.p).addScaledVector(orbitTangent,distance).addScaledVector(kelpNormal,.8);
+      shapeProbe.x+=Math.cos(angle)*lateral;shapeProbe.z+=Math.sin(angle)*lateral;
+      shapeProbe.y=Math.min(floorY+height-.4,Math.max(floorAt(shapeProbe,.8),f.p.y+rise+.2*Math.sin(f.phase)));
+      if(shapeProbe.distanceToSquared(f.p)<.5||!avoidance.isClear(shapeProbe,clearance+.12)||attractor.distanceTo(shapeProbe)<clearance+.2)continue;
+      f.wander.copy(shapeProbe);f.detourTime=6;return;
+    }
+  }
   function setRoaming(value){
     roaming=!!value;avoidance.update();
     for(let i=0;i<settings.count;i++){
-      const f=fish[i];if(f.target>=0)release(f);
+      const f=fish[i];if(f.target>=0)release(f);f.detourTime=0;
       if(roaming){pickWander(f);candidate.subVectors(f.wander,f.p).normalize().multiplyScalar(settings.speed);f.v.lerp(candidate,.65);}
       keepClear(f,true);
     }
@@ -218,21 +264,21 @@ export function createKelpFish({scene,kelp,floorY=-1.75,sun=null,sunlight=create
     f.p.set(Math.cos(angle)*r*2.0,floorY+height*.46+(random()-.5)*1.6,2.9+Math.sin(angle)*r*1.1);
     f.v.set(.9+(random()-.5)*.2,(random()-.5)*.1,-.15);f.face.copy(f.v).normalize();f.target=-1;
     f.previous.copy(f.p);f.previousFace.copy(f.face);f.huntTime=0;f.foliageSpeed=1;
-    f.cooldown=1+random()*8;f.biteWait=0;f.bites=0;f.size=.75+random()*.5;f.phase=random()*6.28;
-    if(i%13===0)f.size*=1.35;
+    f.cooldown=1+random()*8;f.biteWait=0;f.bites=0;f.kind=speciesForFish(i);f.size=(.75+random()*.5)*fishSpecies[f.kind].size;f.phase=random()*6.28;species.setX(i,f.kind);
+    if(i%13===0&&f.kind===0)f.size*=1.35;
     swim.setXY(i,f.phase,f.size*settings.speed);mesh.setColorAt(i,new THREE.Color().setScalar(.85+random()*.3));
     appearance.setX(i,Math.sin(f.phase*7.13+i*1.7)*.1);
-    keepClear(f,true);
+    keepClear(f,true);f.orbitCheck.copy(f.p);f.orbitTime=(i%23)/23*2.5;f.detourTime=0;
     if(roaming)pickWander(f);
   }
   function release(f){if(claimed.get(f.target)===f)claimed.delete(f.target);f.target=-1;f.bites=0;f.cooldown=10+random()*14;}
   function reset(){
     version=kelp.revision;height=kelp.settings.height;const stats=kelp.stats;bladeTotal=stats.blades;
-    random=seededRandom(kelp.settings.seed+811);elapsed=0;time.value=0;accumulator=0;biteCount=0;cursor=0;claimed.clear();
+    random=seededRandom(kelp.settings.seed+811);scaleLife.reset(kelp.settings.seed+811);elapsed=0;time.value=0;accumulator=0;biteCount=0;cursor=0;claimed.clear();
     avoidance.update();
     for(let i=0;i<settings.count;i++)initialize(i);
     for(const d of debris)d.age=10;activeDebris=0;fragments.visible=false;swim.needsUpdate=true;if(mesh.instanceColor)mesh.instanceColor.needsUpdate=true;
-    appearance.needsUpdate=true;mesh.count=settings.count;updateMeshes();
+    appearance.needsUpdate=true;species.needsUpdate=true;mesh.count=settings.count;updateMeshes();
   }
   function setSettings(values={}){
     avoidance.update();
@@ -242,7 +288,7 @@ export function createKelpFish({scene,kelp,floorY=-1.75,sun=null,sunlight=create
     for(let i=settings.count;i<old;i++)release(fish[i]);
     for(let i=old;i<settings.count;i++)initialize(i);
     for(let i=0;i<settings.count;i++){swim.setY(i,fish[i].size*settings.speed);if(!settings.feeding&&fish[i].target>=0)release(fish[i]);}
-    mesh.count=settings.count;swim.needsUpdate=true;appearance.needsUpdate=true;if(mesh.instanceColor)mesh.instanceColor.needsUpdate=true;updateMeshes();
+    mesh.count=settings.count;swim.needsUpdate=true;appearance.needsUpdate=true;species.needsUpdate=true;if(mesh.instanceColor)mesh.instanceColor.needsUpdate=true;updateMeshes();
   }
   function foodFor(f){
     let nearest=-1,distance=5.5*5.5;
@@ -265,7 +311,7 @@ export function createKelpFish({scene,kelp,floorY=-1.75,sun=null,sunlight=create
     }
   }
   function simulate(dt){
-    elapsed+=dt;time.value=elapsed;
+    elapsed+=dt;time.value=elapsed;scaleLife.advance(dt);
     // Reuse bucket arrays; neighbour queries inspect only adjacent cells.
     grid.clear();let bucketCount=0;
     for(let i=0;i<settings.count;i++){
@@ -279,7 +325,7 @@ export function createKelpFish({scene,kelp,floorY=-1.75,sun=null,sunlight=create
       if(f.target>=0){f.huntTime+=dt;if(roaming||attractor?.active||!kelp.getBladeHealth(f.target)||!settings.feeding||f.huntTime>16)release(f);}
       // Stagger excursions: part of the shoal feeds while the rest keeps moving.
       if(!roaming&&!attractor?.active&&f.target<0&&settings.feeding>0&&f.cooldown<=0&&i%4===Math.floor(elapsed/12)%4)foodFor(f);
-      const feeding=f.target>=0,scout=i%19===0,cohesion=roaming?.08:feeding?.07:scout?.35:1;
+      const feeding=f.target>=0,scout=i%19===0,cohesion=roaming?.08:feeding?.07:attractor?.active?.18:scout?.35:1;
       const cx=Math.floor(p.x/cellSize),cy=Math.floor(p.y/cellSize),cz=Math.floor(p.z/cellSize);
       let neighbours=0,px=0,py=0,pz=0,vx=0,vy=0,vz=0,sx=0,sy=0,sz=0;
       for(let x=-1;x<=1;x++)for(let y=-1;y<=1;y++)for(let z=-1;z<=1;z++){
@@ -300,24 +346,36 @@ export function createKelpFish({scene,kelp,floorY=-1.75,sun=null,sunlight=create
       const clearance=.48*f.size+.08;
       const nearby=avoidance.nearest(p,clearance+1.15,kelpNormal,f.target);
       const passage=THREE.MathUtils.smoothstep(nearby,clearance+.12,clearance+1.05);
-      const desiredSpeed=THREE.MathUtils.lerp(feeding?.55:.22,1,passage);
+      const desiredSpeed=THREE.MathUtils.lerp(feeding?.55:attractor?.active&&!roaming?.4:.22,1,passage);
       f.foliageSpeed+=(desiredSpeed-f.foliageSpeed)*(1-Math.exp(-dt*(desiredSpeed<f.foliageSpeed?5:1.8)));
-      const speed=(.9+f.size*.3)*settings.speed*f.foliageSpeed;
+      const speed=cruisingSpeed(f)*f.foliageSpeed;
       if(roaming){
         f.wanderWait-=dt;if(f.wanderWait<=0||p.distanceToSquared(f.wander)<.5*.5)pickWander(f);
         candidate.subVectors(f.wander,p).multiplyScalar(1.2).clampLength(0,speed);
         force.addScaledVector(candidate,2.5).addScaledVector(v,-2.5);
         if(v.lengthSq()>.001)f.face.lerp(candidate.copy(v).normalize(),Math.min(1,dt*4)).normalize();
       }else if(attractor?.active){
-        // Distributed moving targets form a loose orbit instead of pulling
-        // every fish toward the solid object's centre.
-        const angle=elapsed*.24*settings.speed+i*2.39996;
-        const radius=attractor.orbitRadius+.5+.48*f.size+(i%5)*.1;
-        const tx=attractor.center.x+Math.cos(angle)*radius;
-        const ty=Math.max(floorY+.65,attractor.center.y+attractor.halfHeight*.35+Math.sin(angle*1.4+f.phase)*.25);
-        const tz=attractor.center.z+Math.sin(angle)*radius;
-        candidate.set((tx-p.x)*1.25-Math.sin(angle)*radius*.24*settings.speed,(ty-p.y)*1.4,(tz-p.z)*1.25+Math.cos(angle)*radius*.24*settings.speed).clampLength(0,speed);
-        force.multiplyScalar(.35).addScaledVector(candidate,3.5).addScaledVector(v,-3.5);
+        // Follow the local tangent instead of chasing a clock-driven slot.
+        // Slowing for a leaf no longer leaves a target on the far side of the
+        // sculpture and pulls the fish back through an obstructed shortcut.
+        const dx=p.x-attractor.center.x,dz=p.z-attractor.center.z;
+        const distance=Math.hypot(dx,dz),angle=distance>.001?Math.atan2(dz,dx):f.phase;
+        const radialX=Math.cos(angle),radialZ=Math.sin(angle);
+        orbitTangent.set(-radialZ,0,radialX);
+        const radius=attractor.orbitRadius+.65+.48*f.size+(i%7)*.13;
+        const ty=Math.max(floorAt(p,.7),attractor.center.y+attractor.halfHeight*(.15+.65*(i*37%101)/101)+Math.sin(elapsed*.22+f.phase)*.12);
+        const radialSpeed=THREE.MathUtils.clamp((radius-distance)*.85,-speed*.6,speed*.6);
+        candidate.copy(orbitTangent).multiplyScalar(speed*.85);
+        candidate.x+=radialX*radialSpeed;candidate.z+=radialZ*radialSpeed;
+        candidate.y=THREE.MathUtils.clamp((ty-p.y)*1.2,-speed*.65,speed*.65);
+        candidate.clampLength(0,speed);
+        if(f.detourTime>0){
+          f.detourTime=Math.max(0,f.detourTime-dt);
+          if(p.distanceToSquared(f.wander)<.4*.4)f.detourTime=0;
+          else candidate.subVectors(f.wander,p).clampLength(0,speed);
+        }
+        // Preserve full separation while easing only the flock's cohesion.
+        force.addScaledVector(candidate,3.5).addScaledVector(v,-3.5);
         if(candidate.lengthSq()>.001)f.face.lerp(candidate.normalize(),Math.min(1,dt*4)).normalize();
       }else if(feeding&&kelp.getBladeTarget(f.target,target)){
         const distance=p.distanceTo(target),approach=Math.min(speed,distance*2.3);
@@ -361,7 +419,8 @@ export function createKelpFish({scene,kelp,floorY=-1.75,sun=null,sunlight=create
         kelpTangent.copy(f.face).addScaledVector(kelpNormal,-f.face.dot(kelpNormal));
         if(kelpTangent.lengthSq()<.04){
           kelpTangent.set(-kelpNormal.z,.35*Math.sin(f.phase),kelpNormal.x);
-          if(Math.cos(f.phase)<0)kelpTangent.negate();
+          if(attractor?.active&&!roaming){if(kelpTangent.dot(orbitTangent)<0)kelpTangent.negate();}
+          else if(Math.cos(f.phase)<0)kelpTangent.negate();
         }
         kelpTangent.normalize().multiplyScalar(speed);
         force.lerp(candidate.copy(kelpTangent).sub(v).multiplyScalar(2.8),urgency*.85);
@@ -381,13 +440,21 @@ export function createKelpFish({scene,kelp,floorY=-1.75,sun=null,sunlight=create
     }
     // Integrate together so each boid sees the same neighbour snapshot.
     for(let i=0;i<settings.count;i++){
-      const f=fish[i],max=(.9+f.size*.3)*settings.speed*f.foliageSpeed;f.previous.copy(f.p);f.v.addScaledVector(f.force,dt).clampLength(0,max);f.p.addScaledVector(f.v,dt);
+      const f=fish[i],max=cruisingSpeed(f)*f.foliageSpeed;f.previous.copy(f.p);f.v.addScaledVector(f.force,dt).clampLength(0,max);f.p.addScaledVector(f.v,dt);
       const edge=roaming?10.5:8.5;
       for(const axis of ['x','z'])if(Math.abs(f.p[axis])>edge){f.p[axis]=Math.sign(f.p[axis])*edge;f.v[axis]*=-.5;}
       const bottom=floorAt(f.p);if(f.p.y<bottom){f.p.y=bottom;f.v.y=Math.abs(f.v.y);}
       if(f.p.y>floorY+height+1){f.p.y=floorY+height+1;f.v.y=-Math.abs(f.v.y);}
       keepClear(f);
-      if(f.foliageSpeed<.9&&f.target<0&&f.v.lengthSq()>.002){
+      if(attractor?.active&&!roaming){
+        f.orbitTime+=dt;
+        if(f.orbitTime>=2.5){
+          const expected=cruisingSpeed(f)*Math.max(.4,f.foliageSpeed)*2.5;
+          if(!f.detourTime&&f.p.distanceTo(f.orbitCheck)<Math.max(.04,expected*.25))pickOrbitDetour(f,.48*f.size+.08);
+          f.orbitCheck.copy(f.p);f.orbitTime=0;
+        }
+      }
+      if((attractor?.active||f.foliageSpeed<.9)&&f.target<0&&f.v.lengthSq()>.002){
         candidate.copy(f.v).normalize();f.face.lerp(candidate,1-Math.exp(-dt*3)).normalize();
       }
     }
@@ -418,7 +485,7 @@ export function createKelpFish({scene,kelp,floorY=-1.75,sun=null,sunlight=create
   }
   return {group,reset,setSettings,setAttractor,setRoaming,setFloorHeight(sample){terrainHeight=typeof sample==='function'?sample:null;avoidance.update();for(let i=0;i<settings.count;i++)keepClear(fish[i],true);updateMeshes();},get roaming(){return roaming;},get settings(){return {...settings};},get stats(){return {count:settings.count,feeding:fish.slice(0,settings.count).reduce((n,f)=>n+(f.target>=0),0),bites:biteCount,fragments:activeDebris};},
     setVisible(value){group.visible=value;if(value&&version!==kelp.revision)reset();},
-    inspectFish(i){const f=i>=0&&i<settings.count?fish[i]:null;return f?{position:f.p.toArray(),velocity:f.v.toArray(),facing:f.face.toArray(),size:f.size,target:f.target,foliageSpeed:f.foliageSpeed}:null;},
+    inspectFish(i){const f=i>=0&&i<settings.count?fish[i]:null;return f?{position:f.p.toArray(),velocity:f.v.toArray(),facing:f.face.toArray(),size:f.size,target:f.target,foliageSpeed:f.foliageSpeed,species:fishSpecies[f.kind].id}:null;},
     advance(dt){
       if(!group.visible||!Number.isFinite(dt)||dt<=0)return false;
       if(version!==kelp.revision)reset();
@@ -430,6 +497,6 @@ export function createKelpFish({scene,kelp,floorY=-1.75,sun=null,sunlight=create
       avoidance.update();
       // Interpolate the fixed simulation steps for smooth display-rate motion.
       updateMeshes(accumulator/step);return true;
-    },dispose(){white.dispose();group.removeFromParent();for(const resource of [mesh,fragments,geometry,material,depth,fragments.geometry,fragments.material])resource.dispose();}
+    },dispose(){scaleLife.dispose();white.dispose();group.removeFromParent();for(const resource of [mesh,fragments,geometry,material,depth,fragments.geometry,fragments.material])resource.dispose();}
   };
 }

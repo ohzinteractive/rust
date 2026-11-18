@@ -124,3 +124,45 @@ test('release starts at the water surface, rocks during descent and settles with
   assert.equal(impacts.length,1);assert(!shape.falling);assert(mesh.rotation.x===0&&mesh.rotation.z===0);
   assert(Math.abs(shape.bounds.min.y-(-1.75-.16))<1e-6);shape.dispose();
 });
+
+
+test('resizing keeps settled geometry grounded and updates its footprint without rebuilding',()=>{
+  const scene=new THREE.Scene(),impacts=[];
+  const shape=createKelpAttractor({scene,reducedMotion:true,onImpact:p=>impacts.push(p)});shape.setVisible(true);
+  for(const kind of ['cube','cone','plus']){
+    shape.setShape(kind);const mesh=shape.group.children[0],geometry=mesh.geometry;
+    for(const factor of [.25,.5,1,2,3]){
+      shape.setModelSize(factor);
+      const actual=new THREE.Box3().setFromObject(shape.group),size=actual.getSize(new THREE.Vector3());
+      assert(Math.abs(Math.max(size.x,size.y,size.z)-2.6*factor)<1e-5);
+      assert(actual.min.distanceTo(shape.bounds.min)<1e-6&&actual.max.distanceTo(shape.bounds.max)<1e-6);
+      assert(actual.min.y<-1.75&&actual.min.y>=-1.92);
+      assert.equal(mesh.geometry,geometry);assert(!shape.falling);
+      assert(impacts.at(-1).quiet);assert(Math.abs(impacts.at(-1).rx-size.x/2)<1e-6);
+    }
+  }
+  assert(!shape.setModelSize(NaN));assert.equal(shape.modelSize,3);
+  shape.setModelSize(-10);assert.equal(shape.modelSize,.25);
+  shape.clear();shape.setModelSize(1.5);shape.setShape('sphere');assert.equal(shape.modelSize,1.5);
+  assert(Math.abs(shape.bounds.getSize(new THREE.Vector3()).x-3.9)<1e-5);shape.dispose();
+});
+
+test('resizing during descent preserves the falling pose and still lands once',()=>{
+  const scene=new THREE.Scene(),impacts=[],shape=createKelpAttractor({scene,onImpact:p=>impacts.push(p)});
+  shape.setVisible(true);shape.setShape('cone');shape.advance(.1);
+  const bottom=shape.bounds.min.y,rotation=shape.group.children[0].quaternion.clone();
+  shape.setModelSize(1.5);
+  assert(shape.falling);assert(Math.abs(shape.bounds.min.y-bottom)<1e-6);
+  assert(shape.group.children[0].quaternion.equals(rotation));
+  shape.advance(.05);assert(shape.bounds.min.y<bottom);
+  for(let i=0;i<120;i++)shape.advance(.05);
+  assert(!shape.falling);assert.equal(impacts.filter(p=>!p.quiet).length,1);shape.dispose();
+});
+
+test('fish keep their body clearance after an object grows or shrinks',()=>{
+  const sim=simulation();sim.fish.setAttractor(sim.shape);sim.tick(60);
+  for(const factor of [1.5,.25,1]){
+    sim.shape.setModelSize(factor);sim.fish.setAttractor(sim.shape);sim.check();sim.tick(60);
+  }
+  sim.dispose();
+});

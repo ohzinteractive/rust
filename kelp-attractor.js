@@ -1,20 +1,18 @@
 import * as THREE from 'three';
 import {createShapeGeometry} from './specimen-shapes.js';
-import {createKelpSunlight,configureKelpSunlight} from './kelp-lighting.js';
+import {refineSculptureGeometry} from './kelp-sculpture.js';
+import {createKelpSunlight} from './kelp-lighting.js';
+import {createUnderwaterMarbleMaterial,prepareMarbleGeometry} from './kelp-marble.js';
 
 // A grounded scene object plus a conservative collision envelope. Using its
 // world bounds keeps the same body clearance for concave shapes and models.
 export function createKelpAttractor({scene,floorY=-1.75,height=11,sunlight=createKelpSunlight(),getFloorHeight=()=>floorY,getSurfaceHeight=()=>floorY+height+.25,onImpact=()=>{},onReset=()=>{},reducedMotion=false}){
   const group=new THREE.Group();group.name='Kelp fish attractor';group.visible=false;scene.add(group);
-  const material=new THREE.MeshStandardMaterial({name:'Submerged stone',color:0xa3b0a1,roughness:.76,metalness:.03,envMapIntensity:.55});
-  // Buried objects need their light-facing surfaces in the shadow map too.
-  // Back-face-only casting moves the shadow away from the sand contact.
-  material.shadowSide=THREE.DoubleSide;
-  configureKelpSunlight(material,sunlight,.65);
+  const material=createUnderwaterMarbleMaterial(sunlight);
   const bounds=new THREE.Box3(),center=new THREE.Vector3(),half=new THREE.Vector3(),size=new THREE.Vector3();
   const normal=new THREE.Vector3();
   let mesh=null,shape=null,revision=0,disposed=false,reference=null;
-  let fall=null,foundation=null;
+  let fall=null,foundation=null,modelSize=1;
   const orientedBounds=new THREE.Box3(),rotationMatrix=new THREE.Matrix4();
   function setPose(clearance,tilt=0,rock=0){
     mesh.rotation.set(tilt,0,rock);
@@ -32,7 +30,7 @@ export function createKelpAttractor({scene,floorY=-1.75,height=11,sunlight=creat
     if(!mesh)return;
     mesh.geometry.computeBoundingBox();
     const local=mesh.geometry.boundingBox;local.getSize(size);
-    const scale=Math.min(2.6,height*.65)/Math.max(size.x,size.y,size.z,.0001);
+    const scale=Math.min(2.6,height*.65)*modelSize/Math.max(size.x,size.y,size.z,.0001);
     mesh.scale.setScalar(scale);
     if(startDrop||foundation===null)foundation=getFloorHeight(group.position.x,group.position.z+2.5);
     const floor=foundation-group.position.y;
@@ -45,7 +43,7 @@ export function createKelpAttractor({scene,floorY=-1.75,height=11,sunlight=creat
   }
   function removeMesh(){fall=null;onReset();if(mesh){mesh.geometry.dispose();mesh.removeFromParent();mesh=null;}shape=null;bounds.makeEmpty();}
   function install(kind,geometry){
-    removeMesh();geometry.center();
+    removeMesh();geometry.center();prepareMarbleGeometry(geometry);
     mesh=new THREE.Mesh(geometry,material);mesh.name=`Underwater ${kind}`;mesh.castShadow=true;mesh.receiveShadow=true;group.add(mesh);shape=kind;place();
   }
   function distanceTo(point,out=normal){
@@ -106,15 +104,38 @@ export function createKelpAttractor({scene,floorY=-1.75,height=11,sunlight=creat
         if(previous){fall=previous;setPose(offset,tilt,rock);}
       }
     },
+    get modelSize(){return modelSize;},
+    setModelSize(value){
+      if(disposed||!Number.isFinite(value))return false;
+      const next=THREE.MathUtils.clamp(value,.25,3);
+      if(next===modelSize)return false;
+      modelSize=next;
+      if(!mesh)return true;
+      const previous=fall,clearance=bounds.min.y-foundation,tilt=mesh.rotation.x,rock=mesh.rotation.z;
+      place(false);
+      const burial=Math.min(.16,size.y*mesh.scale.y*.12);
+      if(previous){
+        previous.burial=burial;fall=previous;
+        const t=Math.min(1,previous.settle/.75),settle=1-Math.pow(1-t,3);
+        setPose(previous.hit?-burial*settle:clearance,tilt,rock);
+      }
+      if(!previous||previous.hit){
+        onReset();
+        onImpact({x:center.x,z:center.z,y:foundation,rx:half.x,rz:half.z,depth:burial,footprint:shape==='cube'?'box':'ellipse',quiet:true});
+      }
+      return true;
+    },
     setShape(kind){
       if(disposed)return;revision++;discardReference();
       install(kind,kind==='cube'?new THREE.BoxGeometry(2,2,2):createShapeGeometry(kind));
     },
-    async loadHorse(){
+    loadHorse(){return this.loadSample('horse');},
+    async loadSample(kind){
+      if(!['horse','duck','glasses','jeddah'].includes(kind))throw Error('Unknown underwater model');
       const request=++revision;
       const [{GLTFLoader},{disposeModel}]=await Promise.all([import('./vendor/GLTFLoader.js'),import('./model-import.js')]);
       if(disposed||request!==revision)return false;
-      const gltf=await new GLTFLoader().loadAsync('./samples/horse.glb');
+      const gltf=await new GLTFLoader().loadAsync(`./samples/${kind}.glb`);
       try{
         if(disposed||request!==revision)return false;
         const root=gltf.scene,positions=[],point=new THREE.Vector3();root.updateMatrixWorld(true);
@@ -126,9 +147,10 @@ export function createKelpAttractor({scene,floorY=-1.75,height=11,sunlight=creat
             positions.push(point.x,point.y,point.z);
           }
         });
-        if(!positions.length)throw Error('Horse has no visible geometry');
+        if(!positions.length)throw Error(`${kind} has no visible geometry`);
         const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));geometry.computeVertexNormals();
-        discardReference();install('horse',geometry);return true;
+        const sculpture=refineSculptureGeometry(geometry,{organic:kind==='horse'||kind==='duck'});geometry.dispose();
+        discardReference();install(kind,sculpture);return true;
       }finally{disposeModel(gltf.scene);}
     },
     project(point,padding,out=normal){

@@ -1,3 +1,4 @@
+import {selectModel} from './kelp-samples-browser.mjs';
 import assert from 'node:assert/strict';
 import {writeFile} from 'node:fs/promises';
 
@@ -26,7 +27,7 @@ export async function checkKelpLighting({run,call,delay,prefix='current'}){
     await select('final');
     const finalAfterGain=await run(`import('./tests/kelp-lighting-diagnostics.js').then(m=>m.readKelpLightingDiagnostics({renderer:peelDebug.renderer,environment:peelDebug.kelpEnvironment,scene:peelDebug.scene,attractor:peelDebug.kelpAttractor,renderScene:peelDebug.renderScene}))`);
     assert.equal(finalAfterGain.meanBrightness,reports.final.meanBrightness,'Preview gain cannot affect the final scene');
-    await run('document.getElementById("horse-shape").click()');
+    await selectModel({run,delay},'horse');
     for(let i=0;i<100;i++){await delay(100);if(await run('!document.getElementById("horse-shape").disabled'))break;}
     assert.equal(await run('peelDebug.kelpAttractor.shape'),'horse');
     await run('window.inspectionMesh=peelDebug.kelpAttractor.group.children[0];window.inspectionPose=JSON.stringify([peelDebug.camera.position.toArray(),peelDebug.controls.target.toArray()]);document.getElementById("kelp-cube-reference").click();void 0');

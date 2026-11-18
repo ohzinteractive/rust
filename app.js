@@ -35,6 +35,9 @@ import { createFeatherRenderer } from './feather-renderer.js';
 import { createMazeNavigation } from './maze-navigation.js';
 import {getMazeMap,setMazeMap,mazeMaps} from './maze-geometry.js';
 
+const sampleNames={horse:'Horse',duck:'Duck',jeddah:'Jeddah',glasses:'Glasses'};
+const modelIcons={"horse":"<path d=\"m8 21 1-6-3-2-3 1-1-3 4-4 2-4 2 3 4 2 2 5 4 2 1 6M8 21h13M9 15l6-3M8 7h.01\"/>","duck":"<path d=\"M5 13c-4-3-3-9 1-9a4 4 0 0 1 4 4l4 1-4 2v2c4 2 7 0 11-3 1 7-4 11-10 11-6 0-9-3-8-6Z\"/><path d=\"M6 7h.01\"/>","jeddah":"<path d=\"m12 2 5 20H7L12 2ZM12 2v20M9 15h6M8 19h8\"/>","glasses":"<circle cx=\"6\" cy=\"14\" r=\"4\"/><circle cx=\"18\" cy=\"14\" r=\"4\"/><path d=\"M10 14c1-2 3-2 4 0M2 14l2-9h3m15 9-2-9h-3\"/>"};
+let modelChoice='horse';
 const $ = (id) => document.getElementById(id);
 const clamp = (x,a=0,b=1) => Math.max(a,Math.min(b,x));
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -197,15 +200,14 @@ const models=createModelImporter({scene,uniforms,state,reducedMotion,notify:toas
     $('layers-view').disabled=!peeling;
     document.querySelectorAll('[data-shape]').forEach(b=>{b.classList.remove('selected');b.setAttribute('aria-pressed','false');});
     if(state.material!=='feathers')$('scene').setAttribute('aria-label',`${name}. Drag to orbit, scroll to zoom. Use model controls for materials and animation.`);
-    $('horse-shape').classList.toggle('selected',models.sampleKey==='horse');
-    $('horse-shape').setAttribute('aria-pressed',String(models.sampleKey==='horse'));
+    syncShapeButtons();
     $('scene').title='Drag to orbit · Scroll to zoom';
     if(state.material==='fern'&&$('fern-on-object').checked){models.setAppearance();rebuildFern();}
     refreshFeathers();
   },
   onClear(){
     $('model-paint-option').hidden=true;$('basic-paint-option').hidden=false;
-    $('horse-shape').classList.remove('selected');$('horse-shape').setAttribute('aria-pressed','false');
+    document.querySelectorAll('[data-sample]').forEach(button=>{button.classList.remove('selected');button.setAttribute('aria-pressed','false');});
     specimen.visible=true;$('layers-view').disabled=false;
     $('maze-enter').hidden=state.shape!=='maze';
     document.querySelectorAll('[data-shape]').forEach(b=>{const active=b.dataset.shape===state.shape;b.classList.toggle('selected',active);b.setAttribute('aria-pressed',String(active));});
@@ -728,10 +730,22 @@ function syncShapeButtons(){
   for(const button of document.querySelectorAll('[data-shape]')){
     const active=button.dataset.shape===selected;button.classList.toggle('selected',active);button.setAttribute('aria-pressed',String(active));
   }
-  $('horse-shape').classList.toggle('selected',selected==='horse');$('horse-shape').setAttribute('aria-pressed',String(selected==='horse'));
+  const modelButton=$('horse-shape'),active=!!sampleNames[selected];
+  if(active)modelChoice=selected;
+  const modelIndex=Object.keys(sampleNames).indexOf(modelChoice),modelName=sampleNames[modelChoice];
+  modelButton.dataset.sample=modelChoice;
+  modelButton.classList.toggle('selected',active);modelButton.setAttribute('aria-pressed',String(active));
+  modelButton.querySelector('span').textContent=modelName+' '+(modelIndex+1)+'/4';
+  modelButton.querySelector('svg').innerHTML=modelIcons[modelChoice];
+  modelButton.title=modelName+' · Click again to switch models';
+  modelButton.setAttribute('aria-label','3D model: '+modelName+', '+(modelIndex+1)+' of 4. Click again to switch models.');
   $('kelp-remove-shape').disabled=!kelpAttractor.hasShape;
+  $('kelp-model-size').disabled=!kelpAttractor.hasShape;
+  $('kelp-model-size').value=Math.round(kelpAttractor.modelSize*100);
+  $('kelp-model-size-value').value=kelpAttractor.modelSize.toFixed(2)+'×';
+  $('kelp-model-size-reset').disabled=!kelpAttractor.hasShape||kelpAttractor.modelSize===1;
   $('kelp-cube-reference').checked=kelpAttractor.cubeReference;
-  $('kelp-shape-status').textContent=kelpFish.roaming?(kelpAttractor.hasShape?'Fish are roaming and avoiding the shape. Regroup to attract them again.':'Fish are roaming freely. Regroup to return them to schooling and grazing.'):kelpAttractor.hasShape?(shapeNames[kelpAttractor.shape]??'Horse')+' attracts the fish. They circle it with a safe gap; removing it resumes grazing.':'Choose a shape below to place it on the seabed and attract the fish.';
+  $('kelp-shape-status').textContent=kelpFish.roaming?(kelpAttractor.hasShape?'Fish are roaming and avoiding the shape. Regroup to attract them again.':'Fish are roaming freely. Regroup to return them to schooling and grazing.'):kelpAttractor.hasShape?(shapeNames[kelpAttractor.shape]??sampleNames[kelpAttractor.shape])+' attracts the fish. They circle it with a safe gap; removing it resumes grazing.':'Choose a shape below to place it on the seabed and attract the fish.';
 }
 function addKelpShape(shape){
   if(shape==='maze'&&kelpAttractor.shape==='maze'){
@@ -741,12 +755,14 @@ function addKelpShape(shape){
   kelpAttractor.setShape(shape);kelpFish.setAttractor(kelpAttractor);syncKelp();
   renderer.shadowMap.needsUpdate=true;renderDirty=true;
 }
-async function addKelpHorse(){
-  $('horse-shape').disabled=true;$('kelp-shape-status').textContent='Loading horse…';
-  try{if(await kelpAttractor.loadHorse()){kelpFish.setAttractor(kelpAttractor);if(state.material==='kelp')syncKelp();}}
-  catch(error){toast('Could not load the horse. Choose another shape.');}
-  finally{$('horse-shape').disabled=false;syncShapeButtons();renderDirty=true;renderer.shadowMap.needsUpdate=true;}
+async function addKelpSample(kind){
+  const button=$('horse-shape'),name=sampleNames[kind];
+  button.disabled=true;$('kelp-shape-status').textContent=`Loading ${name.toLowerCase()}…`;
+  try{if(await kelpAttractor.loadSample(kind)){kelpFish.setAttractor(kelpAttractor);if(state.material==='kelp')syncKelp();}}
+  catch(error){toast(`Could not load ${name.toLowerCase()}. Choose another shape.`);}
+  finally{button.disabled=false;syncShapeButtons();renderDirty=true;renderer.shadowMap.needsUpdate=true;}
 }
+
 function syncKelpStats(){
   const stats=kelp.stats,school=kelpFish.stats;
   const summary=stats.strands+' stipes · '+school.count+' fish'+(kelpFish.roaming?' · roaming':'')+(kelpEnvironment.lightingView!=='final'?' · inspecting lighting':''),feeding=Math.round(stats.remaining*100)+'% kelp remaining · '+stats.eaten+' blades eaten · '+school.feeding+' fish feeding';
@@ -782,6 +798,15 @@ $('kelp-surface').onclick=()=>{
 $('kelp-regrow').onclick=()=>{kelp.rebuild({seed:kelp.settings.seed+101});kelpFish.reset();syncKelp();};
 $('kelp-restore').onclick=()=>{kelp.restore();syncKelp();};
 $('kelp-remove-shape').onclick=()=>{kelpAttractor.clear();kelpFish.setAttractor(kelpAttractor);syncKelp();};
+function resizeKelpModel(value){
+  const roaming=kelpFish.roaming;
+  if(kelpAttractor.setModelSize(value)){
+    kelpFish.setAttractor(kelpAttractor);kelpFish.setRoaming(roaming);
+  }
+  syncKelp();
+}
+$('kelp-model-size').oninput=event=>resizeKelpModel(Number(event.target.value)/100);
+$('kelp-model-size-reset').onclick=()=>resizeKelpModel(1);
 function setKelpRoaming(value){kelpFish.setRoaming(value);kelp.setPlaying(true);syncKelp();}
 $('kelp-fish-roam').onclick=()=>setKelpRoaming(!kelpFish.roaming);
 $('kelp-lighting-view').onchange=event=>{kelpEnvironment.setLightingView(event.target.value);syncKelp();};
@@ -1191,21 +1216,24 @@ document.querySelectorAll('[data-shape]').forEach(button=>button.addEventListene
   renderer.shadowMap.needsUpdate=true;renderDirty=true;
 }));
 
-const sampleNames={horse:'Horse statue',glasses:'Glasses',duck:'Duck'};
-$('horse-shape').addEventListener('click',async()=>{
+document.querySelectorAll('[data-sample]').forEach(button=>button.addEventListener('click',async()=>{
+  const selected=state.material==='kelp'?kelpAttractor.shape:models.sampleKey;
+  const choices=Object.keys(sampleNames);
+  const kind=sampleNames[selected]?choices[(choices.indexOf(selected)+1)%choices.length]:modelChoice;
   if(state.material==='kelp'){
-    await addKelpHorse();
+    await addKelpSample(kind);
     return;
   }
-  interactions.cancel();
-  if(await models.loadSample('horse',sampleNames.horse))repaint(!reducedMotion);
-});
+  interactions.cancel();button.disabled=true;
+  try{if(await models.loadSample(kind,sampleNames[kind]))repaint(!reducedMotion);}
+  finally{button.disabled=false;syncShapeButtons();}
+}));
 
 $('random-shape').onclick=async()=>{
   if(state.material==='kelp'){
-    const shapes=[...Object.keys(shapeNames),'horse'].filter(shape=>shape!==kelpAttractor.shape);
+    const shapes=[...Object.keys(shapeNames),...Object.keys(sampleNames)].filter(shape=>shape!==kelpAttractor.shape);
     const selected=shapes[Math.floor(Math.random()*shapes.length)];
-    if(selected==='horse')await addKelpHorse();else addKelpShape(selected);
+    if(sampleNames[selected])await addKelpSample(selected);else addKelpShape(selected);
     return;
   }
   interactions.cancel();

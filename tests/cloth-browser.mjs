@@ -1,3 +1,4 @@
+import {selectModel} from './kelp-samples-browser.mjs';
 import {writeFile} from 'node:fs/promises';
 
 export async function checkCloth({run,call,delay,assert,mobile=false}){
@@ -6,7 +7,7 @@ export async function checkCloth({run,call,delay,assert,mobile=false}){
   for(const shape of ['sphere','pill','horse']){
     if(shape==='pill')await run("document.querySelector('[data-shape=pill]').click()");
     if(shape==='horse'){
-      await run("document.getElementById('horse-shape').click()");
+      await selectModel({run,delay},'horse');
       for(let i=0;i<100&&!(await run("peelDebug.models.sampleKey==='horse'"));i++)await delay(100);
       assert(await run("peelDebug.models.sampleKey==='horse'"));
     }
@@ -38,7 +39,7 @@ export async function checkClothRopes({run,call,delay,assert,mobile=false}){
   for(const shape of ['sphere','pill','horse']){
     if(shape==='pill')await run("document.querySelector('[data-shape=pill]').click()");
     if(shape==='horse'){
-      await run("document.getElementById('horse-shape').click()");
+      await selectModel({run,delay},'horse');
       for(let i=0;i<100&&!(await run("peelDebug.models.sampleKey==='horse'"));i++)await delay(100);
       assert(await run("peelDebug.models.sampleKey==='horse'"));
     }
@@ -87,7 +88,7 @@ export async function checkDelayedWrapping({run,call,assert,mobile=false}){
 }
 
 export async function checkHorseClothContacts({run,call,delay,assert,mobile=false}){
-  await run("document.getElementById('horse-shape').click()");
+  await selectModel({run,delay},'horse');
   for(let i=0;i<100&&!(await run("peelDebug.models.sampleKey==='horse'"));i++)await delay(100);
   assert(await run("peelDebug.models.sampleKey==='horse'"));
   await run("document.getElementById('cloth-material').click();document.getElementById('cloth-add-rope').click();document.getElementById('cloth-add-rope').click();for(let i=0;i<900;i++)peelDebug.cloth.advance(1/60)");

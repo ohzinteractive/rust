@@ -1,3 +1,4 @@
+import {selectModel} from './kelp-samples-browser.mjs';
 import assert from 'node:assert/strict';
 import {writeFile} from 'node:fs/promises';
 
@@ -29,14 +30,14 @@ export async function checkKelpAttractor({run,call,delay}){
   const capture=async name=>{await run('peelDebug.renderScene()');const shot=await call('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});await writeFile('/private/tmp/'+name+'.png',Buffer.from(shot.result.data,'base64'));};
   await capture('oxide-kelp-attractor');
   await click('kelp-remove-shape');assert(await run('!peelDebug.kelpAttractor.hasShape&&document.getElementById("kelp-remove-shape").disabled'));
-  await click('horse-shape');
-  for(let i=0;i<100;i++){await delay(100);if(await run('!document.getElementById("horse-shape").disabled'))break;}
+  await selectModel({run,delay},'horse');
+  for(let i=0;i<100;i++){await delay(100);if(await run('![...document.querySelectorAll("[data-sample]")].some(b=>b.disabled)'))break;}
   assert(await run('peelDebug.kelpAttractor.shape==="horse"&&peelDebug.state.material==="kelp"&&!peelDebug.models.active&&document.getElementById("horse-shape").getAttribute("aria-pressed")==="true"'),'Horse is an underwater attractor, not the specimen model');
   await run('document.getElementById("horse-shape").click();document.querySelector("[data-shape=sphere]").click()');
-  for(let i=0;i<100;i++){await delay(100);if(await run('!document.getElementById("horse-shape").disabled'))break;}
+  for(let i=0;i<100;i++){await delay(100);if(await run('![...document.querySelectorAll("[data-sample]")].some(b=>b.disabled)'))break;}
   assert(await run('peelDebug.kelpAttractor.shape==="sphere"'),'A late horse load cannot replace a newer shape selection');
   await click('random-shape');
-  for(let i=0;i<100;i++){await delay(100);if(await run('!document.getElementById("horse-shape").disabled'))break;}
+  for(let i=0;i<100;i++){await delay(100);if(await run('![...document.querySelectorAll("[data-sample]")].some(b=>b.disabled)'))break;}
   assert(await run('peelDebug.state.material==="kelp"&&peelDebug.kelpAttractor.hasShape&&peelDebug.kelpAttractor.shape!=="sphere"'),'Random shape also stays in the underwater scene');
   await run('document.querySelector("[data-shape=cube]").click();peelDebug.renderScene()');
   await call('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await delay(300);await click('reset-view');

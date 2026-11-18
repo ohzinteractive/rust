@@ -11,6 +11,10 @@ import {checkDesertSky} from './desert-sky-browser.mjs';
 import {checkKelp} from './kelp-browser.mjs';
 import {checkKelpFish} from './kelp-fish-browser.mjs';
 import {checkKelpAttractor} from './kelp-attractor-browser.mjs';
+import {checkMarbleArtifacts} from './marble-artifacts-browser.mjs';
+import {checkKelpOrbit} from './kelp-orbit-browser.mjs';
+import {checkFishVariety} from './fish-variety-browser.mjs';
+import {checkKelpSamples,checkKelpModelSize,selectModel} from './kelp-samples-browser.mjs';
 import {checkKelpDrop} from './kelp-drop-browser.mjs';
 import {checkKelpLightingSliders} from './kelp-lighting-sliders-browser.mjs';
 import {checkKelpLeafPhysics} from './kelp-leaf-physics-browser.mjs';
@@ -41,7 +45,17 @@ try{
  let loaded=false;for(let i=0;i<100;i++){await delay(200);loaded=await run("document.readyState==='complete'&&!document.getElementById('loading')");if(loaded||errors.length)break;}
  assert.equal(errors.length,0,JSON.stringify(errors));assert(loaded,'Scene did not finish loading');
  assert(await run("document.getElementById('webgl-error').hidden"));
- if(process.argv.includes('--kelp-surface-only')){
+ if(process.argv.includes('--fish-variety-only')){
+   await checkFishVariety({run,call});assert.equal(errors.length,0,JSON.stringify(errors));
+ }else if(process.argv.includes('--kelp-orbit-only')){
+   await checkKelpOrbit({run,call});assert.equal(errors.length,0,JSON.stringify(errors));
+ }else if(process.argv.includes('--marble-artifacts-only')){
+   await checkMarbleArtifacts({run});assert.equal(errors.length,0,JSON.stringify(errors));
+ }else if(process.argv.includes('--kelp-model-size-only')){
+   await checkKelpModelSize({run,call,delay});assert.equal(errors.length,0,JSON.stringify(errors));
+ }else if(process.argv.includes('--kelp-samples-only')){
+   await checkKelpSamples({run,call,delay});assert.equal(errors.length,0,JSON.stringify(errors));
+ }else if(process.argv.includes('--kelp-surface-only')){
    await checkKelpSurface({run,call});assert.equal(errors.length,0,JSON.stringify(errors));
  }else if(process.argv.includes('--kelp-leaf-motion-only')){
    await checkKelpLeafMotion({run,call});assert.equal(errors.length,0,JSON.stringify(errors));
@@ -917,8 +931,7 @@ try{
  await run("document.querySelector('[data-metal=copper]').click()");
  assert(await run("peelDebug.state.material==='metal'&&peelDebug.surface.mesh.visible&&!peelDebug.feathers.group.parent"));
  assert(await run("!document.getElementById('sample-model')"));
- assert(await run("document.getElementById('horse-shape').textContent.includes('Horse')"));
- await run("document.getElementById('horse-shape').click()");
+ await selectModel({run,delay},'horse');
  for(let i=0;i<150;i++){await delay(200);if(await run("peelDebug.models.sampleKey==='horse'"))break;}
  assert.equal(await run('peelDebug.models.sampleKey'),'horse');
  assert(await run("document.getElementById('horse-shape').getAttribute('aria-pressed')==='true'"));
@@ -933,14 +946,20 @@ try{
  await run("document.getElementById('paint-toggle').click()");
  assert(await run("peelDebug.state.material==='metal'&&!!peelDebug.models.peelingStats"));
  for(const sample of ['duck','glasses']){
-   await run("(()=>{const original=Math.random;Math.random=()=>.99;document.getElementById('random-shape').click();Math.random=original;})()");
+   await run(`(()=>{
+     const original=Math.random,selected=peelDebug.models.sampleKey??peelDebug.state.shape;
+     const choices=[...document.querySelectorAll('[data-shape]')].map(b=>b.dataset.shape).concat(['horse','duck','jeddah','glasses']).filter(kind=>kind!==selected);
+     const target=(choices.indexOf('${sample}')+.5)/choices.length;let draws=0;
+     Math.random=()=>++draws===2?target:.99;
+     try{document.getElementById('random-shape').click();}finally{Math.random=original;}
+   })()`);
    for(let i=0;i<150;i++){await delay(200);if(await run(`peelDebug.models.sampleKey==='${sample}'`))break;}
    assert.equal(await run('peelDebug.models.sampleKey'),sample);
    if(sample==='duck'){
      assert(await run("peelDebug.state.material==='feathers'&&peelDebug.feathers.stats.count>0&&!peelDebug.models.peelingStats&&!peelDebug.state.playing"));
      assert(await run("peelDebug.models.meshes.every(mesh=>mesh.material===peelDebug.feathers.substrate)&&document.getElementById('feather-material').getAttribute('aria-pressed')==='true'"));
    }else assert(await run("peelDebug.state.material==='metal'&&!!peelDebug.models.peelingStats&&!peelDebug.feathers.group.parent"));
-   assert(await run("document.getElementById('horse-shape').getAttribute('aria-pressed')==='false'"));
+   assert(await run(`document.getElementById('horse-shape').getAttribute('aria-pressed')==='true'&&document.getElementById('horse-shape').dataset.sample==='${sample}'`));
    assert(await run("document.querySelector('.model-panel').hidden"));
  }
  await run("(async()=>{const original=Math.random;let draws=0;Math.random=()=>++draws===2?0:.99;try{await document.getElementById('random-shape').onclick();}finally{Math.random=original;}})()");
