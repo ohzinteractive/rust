@@ -36,6 +36,7 @@ import {defaultPlasticSettings,iridescentPlasticSettings} from './cloth-fabric.j
 import { createFeatherRenderer } from './feather-renderer.js';
 import { createMazeNavigation } from './maze-navigation.js';
 import {getMazeMap,setMazeMap,mazeMaps} from './maze-geometry.js';
+import {createSceneURLSync} from './scene-url.js';
 
 const sampleNames={horse:'Horse',duck:'Duck',jeddah:'Jeddah',glasses:'Glasses'};
 const modelIcons={"horse":"<path d=\"m8 21 1-6-3-2-3 1-1-3 4-4 2-4 2 3 4 2 2 5 4 2 1 6M8 21h13M9 15l6-3M8 7h.01\"/>","duck":"<path d=\"M5 13c-4-3-3-9 1-9a4 4 0 0 1 4 4l4 1-4 2v2c4 2 7 0 11-3 1 7-4 11-10 11-6 0-9-3-8-6Z\"/><path d=\"M6 7h.01\"/>","jeddah":"<path d=\"m12 2 5 20H7L12 2ZM12 2v20M9 15h6M8 19h8\"/>","glasses":"<circle cx=\"6\" cy=\"14\" r=\"4\"/><circle cx=\"18\" cy=\"14\" r=\"4\"/><path d=\"M10 14c1-2 3-2 4 0M2 14l2-9h3m15 9-2-9h-3\"/>"};
@@ -55,6 +56,7 @@ state.palmView={fov:48,...defaultDesertSunSettings};
 state.clothSettings={breeze:.12,held:true,fabric:'linen',ropes:[],ropePoints:96,autoSettle:true,settleTolerance:.003};
 const currentColors={dark:'#241610',burnt:'#70371f',orange:'#b95b28',gold:'#b28a45',teal:'#53645a',tealLight:'#7d8b72',pink:'#efc51a',pinkLight:'#f7d74b',metal:'#343936'};
 let paintHold=2.6;
+let sceneURL=null;
 
 let renderDirty=true,desiredExplode=0;
 for(const event of ['input','change','click','keydown'])document.addEventListener(event,()=>{renderDirty=true;});
@@ -742,6 +744,7 @@ function syncKelp(){
   renderDirty=true;renderer.shadowMap.needsUpdate=true;
 }
 function syncShapeButtons(){
+  sceneURL?.schedule();
   const gateMode=state.material==='shape-gate';
   const selected=gateMode?'shape-gate':state.material==='kelp'?kelpAttractor.shape:models.active?models.sampleKey:state.shape;
   for(const button of document.querySelectorAll('[data-shape]')){
@@ -1471,3 +1474,153 @@ function animate(time){
   if(firstFrame){firstFrame=false;$('loading').classList.add('complete');setTimeout(()=>$('loading').remove(),700);}
 }
 requestAnimationFrame(animate);
+
+// Store only changes from the initial controls, keeping ordinary section links short.
+const urlControls=[...document.querySelectorAll('input,select')].filter(input=>
+  input.type!=='file'&&(input.id||input.type==='radio'&&input.name));
+const controlKey=input=>input.type==='radio'?'radio:'+input.name:input.id;
+function readURLControls(){
+  const values={};
+  for(const input of urlControls){
+    if(input.type==='radio'&&!input.checked)continue;
+    values[controlKey(input)]=input.type==='checkbox'?input.checked:input.value;
+  }
+  // Grammar fields are drafts until Apply is pressed.
+  for(const key of featherGrammarKeys)values['feather-'+key]=state.featherSettings[key];
+  return values;
+}
+const initialURLControls=readURLControls();
+const initialURLSeeds={specimen:state.seed,palm:palmSettings.seed,fern:fernSettings.seed,kelp:kelp.settings.seed};
+let urlCamera=null,urlCameraRoute=null;
+function cameraRoute(){return [state.material,!!state.palm,state.palmSceneView,models.active?models.sampleKey:state.material==='kelp'?kelpAttractor.shape:state.shape].join('|');}
+function captureURLCamera(){
+  urlCamera={position:camera.position.toArray(),target:controls.target.toArray()};
+  urlCameraRoute=cameraRoute();
+  sceneURL?.schedule();
+}
+controls.addEventListener('end',captureURLCamera);
+function getSceneURLState(){
+  const palmMode=state.material==='feathers'&&state.palm&&!models.active;
+  const sceneName=palmMode?'oasis':state.material==='shape-gate'?'gate':state.material;
+  const object=palmMode?($('oasis-shape-gate').checked?'gate':'palm'):
+    state.material==='shape-gate'?'gate':state.material==='kelp'?(kelpAttractor.shape??'none'):
+    models.active?(models.sampleKey??'custom'):state.material==='fern'&&!$('fern-on-object').checked?'fern':state.shape;
+  const inputs=Object.fromEntries(Object.entries(readURLControls()).filter(([key,value])=>value!==initialURLControls[key]));
+  const seeds=Object.fromEntries(Object.entries({specimen:state.seed,palm:palmSettings.seed,fern:fernSettings.seed,kelp:kelp.settings.seed})
+    .filter(([key,value])=>value!==initialURLSeeds[key]));
+  const settings={};
+  if(Object.keys(inputs).length)settings.inputs=inputs;
+  if(Object.keys(seeds).length)settings.seeds=seeds;
+  if(urlCamera&&urlCameraRoute===cameraRoute())settings.camera=urlCamera;
+  if(state.clothSettings.ropes.length)settings.ropes=state.clothSettings.ropes;
+  if(palmMode&&state.palmView.fov===null)settings.autoFov=true;
+  settings.rotate=state.rotate;
+  if(state.material==='metal'){
+    settings.playing=state.playing;settings.colors={...currentColors};
+    settings.rotation=specimen.rotation.toArray().slice(0,3);
+  }
+  if(state.material==='kelp'){settings.playing=kelp.playing;settings.roaming=kelpFish.roaming;}
+  if(state.material==='fern')settings.playing=fernDispersal.playing;
+  if(state.material==='fern'&&fernLife.active)settings.cyclePlaying=fernLife.playing;
+  return {scene:sceneName,object,view:palmMode?state.palmSceneView:mazeNavigation.active?'inside':
+    state.material==='metal'&&desiredExplode?'layers':state.material==='fern'&&fernLife.active?'cycle':null,
+    metal:state.material==='metal'?state.metal:null,map:object==='maze'?getMazeMap():null,settings};
+}
+function restoreURLInput(key,value){
+  const input=urlControls.find(item=>controlKey(item)===key&&(item.type!=='radio'||item.value===value));
+  if(!input)return;
+  if(input.type==='checkbox'){
+    if(typeof value!=='boolean'||input.checked===value)return;
+    input.checked=value;
+  }else{
+    if(typeof value!=='string'||value.length>4096||(input.type==='radio'?input.checked:input.value===value))return;
+    if(input.tagName==='SELECT'&&![...input.options].some(option=>option.value===value))return;
+    if(input.type==='range'||input.type==='number'){
+      const number=Number(value);
+      if(!Number.isFinite(number)||input.min!==''&&number<Number(input.min)||input.max!==''&&number>Number(input.max))return;
+    }
+    if(input.type==='color'&&!/^#[\da-f]{6}$/i.test(value))return;
+    input.value=value;
+    if(input.type==='radio')input.checked=true;
+  }
+  input.dispatchEvent(new Event(input.type==='checkbox'||input.type==='radio'||input.tagName==='SELECT'?'change':'input',{bubbles:true}));
+}
+async function restoreSceneURL({scene:section,object,view,metal,map,settings}){
+  if(!section&&!object)return;
+  if(mazeMaps.some(item=>item.id===map)){setMazeMap(map);state.mazeMap=map;syncMazeMapButton();}
+  const seeds=settings.seeds??{};
+  for(const [key,target] of [['specimen',state],['palm',palmSettings],['fern',fernSettings]]){
+    if(Number.isSafeInteger(seeds[key])&&seeds[key]>=0&&seeds[key]<=1e9)target.seed=seeds[key];
+  }
+  uniforms.uSeed.value=state.seed*.017;
+  if(section==='oasis')growPalm();
+  else if(section==='gate'||object==='gate'&&section!=='oasis')$('shape-gate-shape').click();
+  else if(['feathers','fern','kelp','cloth'].includes(section))$(section==='feathers'?'feather-material':section+'-material').click();
+  else selectMetal(Object.hasOwn(metalPresets,metal)?metal:'iron');
+  if(section==='kelp'&&Number.isSafeInteger(seeds.kelp)&&seeds.kelp>=0&&seeds.kelp<=1e9)kelp.rebuild({seed:seeds.kelp});
+  if(section==='oasis')setOasisShapeGate(object==='gate'||object==='shape-gate');
+  else if(state.material==='kelp'){
+    if(Object.hasOwn(shapeNames,object))addKelpShape(object);
+    else if(Object.hasOwn(sampleNames,object))await addKelpSample(object);
+  }else if(Object.hasOwn(shapeNames,object)){
+    changeShape(object);
+    if(state.material==='fern'){$('fern-on-object').checked=true;rebuildFern();}
+    surface.rebuild();refreshFeathers();updateMetalFinish();
+  }else if(Object.hasOwn(sampleNames,object))await models.loadSample(object,sampleNames[object]);
+  const inputs=settings.inputs;
+  if(inputs&&typeof inputs==='object'&&!Array.isArray(inputs)){
+    // Apply in UI order so environment/fabric toggles precede their dependent settings.
+    for(const key of new Set(urlControls.map(controlKey))){
+      if(Object.hasOwn(inputs,key))restoreURLInput(key,inputs[key]);
+    }
+    if(featherGrammarKeys.some(key=>Object.hasOwn(inputs,'feather-'+key)))$('feather-grammar-apply').click();
+  }
+  if(Array.isArray(settings.ropes)){
+    state.clothSettings.ropes=settings.ropes.slice(0,32).filter(rope=>rope&&
+      Number.isSafeInteger(rope.id)&&['cord','ribbon'].includes(rope.style)&&
+      ['height','tightness','width','turns','span'].every(key=>Number.isFinite(rope[key])&&rope[key]>=0&&rope[key]<=5))
+      .map(({id,style,height,tightness,width,turns,span})=>({id,style,height,tightness,width,turns,span}));
+    cloth.setRopes(state.clothSettings.ropes);syncClothRopes();
+  }
+  if(state.material==='metal'){
+    if(settings.colors&&typeof settings.colors==='object'){
+      for(const key of colorKeys)if(/^#[\da-f]{6}$/i.test(settings.colors[key]))currentColors[key]=settings.colors[key];
+      syncColors();
+    }
+    if(Array.isArray(settings.rotation)&&settings.rotation.length===3&&settings.rotation.every(Number.isFinite)){
+      specimen.rotation.set(...settings.rotation);specimen.updateMatrixWorld(true);physics.setCubeTransform(specimen.position,specimen.quaternion);
+    }
+    if(typeof inputs?.age==='string'&&Number.isFinite(Number(inputs.age)))setAge(Number(inputs.age)/100);
+    if(view==='layers')setLayerView(1);
+    if(typeof settings.playing==='boolean')setPlaying(settings.playing);
+    surface.updateAttached();
+  }
+  if(state.material==='kelp'){
+    if(typeof settings.roaming==='boolean')kelpFish.setRoaming(settings.roaming);
+    if(typeof settings.playing==='boolean')kelp.setPlaying(settings.playing);
+    syncKelp();
+  }
+  if(state.material==='fern'&&typeof settings.playing==='boolean')fernDispersal.setPlaying(settings.playing);
+  if(state.material==='fern'&&view==='cycle'){
+    showFernCycle(true);
+    if(typeof inputs?.['fern-cycle-progress']==='string')seekFernLife(Number(inputs['fern-cycle-progress']));
+    if(typeof settings.cyclePlaying==='boolean')fernLife.setPlaying(settings.cyclePlaying);
+  }
+  if(typeof settings.rotate==='boolean')setAutoRotation(settings.rotate);
+  if(section==='oasis'){
+    if(settings.autoFov){state.palmView.fov=null;resize();}
+    if(['oasis','building','shape-gate'].includes(view))await setPalmSceneView(view);
+  }
+  if(object==='maze'&&view==='inside')mazeNavigation.enter();
+  const pose=settings.camera;
+  if(pose&&['position','target'].every(key=>Array.isArray(pose[key])&&pose[key].length===3&&pose[key].every(value=>Number.isFinite(value)&&Math.abs(value)<1e5))){
+    stopKelpShot();controls.enableDamping=false;controls.update();
+    camera.position.fromArray(pose.position);controls.target.fromArray(pose.target);controls.update();controls.enableDamping=true;
+    urlCamera=pose;urlCameraRoute=cameraRoute();
+  }
+  updateMetalFinish();updateAgeUI();renderDirty=true;renderer.shadowMap.needsUpdate=true;
+}
+sceneURL=createSceneURLSync({window,getState:getSceneURLState,restore:restoreSceneURL});
+for(const event of ['input','change','click','keyup','pointerup'])document.addEventListener(event,()=>sceneURL.schedule());
+$('scene').addEventListener('keyup',event=>{if(event.key.startsWith('Arrow'))captureURLCamera();});
+sceneURL.start().catch(error=>{console.warn('Could not restore scene URL',error);toast('Some linked settings could not be restored.');});
