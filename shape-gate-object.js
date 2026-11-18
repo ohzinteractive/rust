@@ -5,7 +5,7 @@ import {morphFrames} from './shape-gate-surface.js';
 import {findBridgeAttachment,findRoofAttachment} from './shape-gate-suspension.js';
 import {createGateRimGeometry,createProfiledGateShape,createSlottedGateShape,gateRimDepth,gateRimRadius} from './shape-gate-geometry.js';
 import {cordSlotHalfWidth,crossingRotation,gateBevel,gateDepth,gateRadius} from './shape-gate-aperture.js';
-import {GLTFLoader} from './vendor/GLTFLoader.js';
+import {createGLTFLoader} from './gltf-loader.js';
 import {createMarbleMaterial,prepareMarbleGeometry} from './kelp-marble.js';
 import {createGateBaseSeal,createGateFloor} from './shape-gate-base.js';
 import {createGoldMaterial,createGoldReflectionSky} from './shape-gate-gold.js';
@@ -211,7 +211,7 @@ export function createShapeGate({renderer,scene,includeGround=true,shadowLight,o
   loading=true;onStatus('Preparing sculpture…');
   let root,prepared;
   try{
-   root=geometricShapes.includes(value)?shapeRoot(value):(await new GLTFLoader().loadAsync(url??`./samples/${encodeURIComponent(value)}.glb`)).scene;
+   root=geometricShapes.includes(value)?shapeRoot(value):(await createGLTFLoader().loadAsync(url??`./samples/${encodeURIComponent(value)}.glb`)).scene;
    if(request!==revision)return;
    if(automatic&&!cycle)return;
    prepared=prepare(root,value);

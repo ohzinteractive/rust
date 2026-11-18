@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import {GLTFLoader} from './vendor/GLTFLoader.js';
+import {createGLTFLoader} from './gltf-loader.js';
 
 // The roughly four-unit palm is about twenty meters tall. Keep the distant
 // kilometer-high landmark in that same coordinate system.
@@ -16,7 +16,7 @@ function disposeRoot(root){
   textures.forEach(texture=>texture.dispose());materials.forEach(material=>material.dispose());geometries.forEach(geometry=>geometry.dispose());
 }
 
-export function createDesertLandmark({scene,floorY=-1.75,invalidate=()=>{},notify=()=>{},loader=new GLTFLoader()}){
+export function createDesertLandmark({scene,floorY=-1.75,invalidate=()=>{},notify=()=>{},loader=createGLTFLoader()}){
   const group=new THREE.Group();group.name='Jeddah building';group.visible=false;
   group.position.set(-465,floorY,-308);group.userData.heightMeters=jeddahHeightMeters;
   scene.add(group);

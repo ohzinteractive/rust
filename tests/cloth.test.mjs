@@ -4,7 +4,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 registerHooks({resolve(s,c,next){return next(s==='three'?new URL('../vendor/three.module.js',import.meta.url).href:s,c);}});
 const THREE=await import('../vendor/three.module.js');
-const {GLTFLoader}=await import('../vendor/GLTFLoader.js');
+const {parseGLB}=await import('./draco-node.mjs');
 const {createClothSurface}=await import('../cloth-surface.js');
 const {createClothCollider}=await import('../cloth-collider.js');
 const {createShapeGeometry}=await import('../specimen-shapes.js');
@@ -12,7 +12,7 @@ const {createShapeGeometry}=await import('../specimen-shapes.js');
 for(const shape of ['sphere','pill','horse'])test(`${shape}: cloth falls, folds and remains outside the specimen and floor`,async()=>{
   const scene=new THREE.Scene(),material=new THREE.MeshBasicMaterial(),meshes=[];
   if(shape==='horse'){
-    const bytes=await readFile(new URL('../samples/horse.glb',import.meta.url)),gltf=await new GLTFLoader().parseAsync(bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength),'');
+    const bytes=await readFile(new URL('../samples/horse.glb',import.meta.url)),gltf=await parseGLB(bytes);
     const root=gltf.scene,bounds=new THREE.Box3().setFromObject(root,true),center=bounds.getCenter(new THREE.Vector3()),size=bounds.getSize(new THREE.Vector3()),scale=3/Math.max(size.x,size.y,size.z),wrapper=new THREE.Group();
     wrapper.scale.setScalar(scale);wrapper.position.set(-center.x*scale,-1.65-bounds.min.y*scale,-center.z*scale);wrapper.add(root);scene.add(wrapper);root.traverse(mesh=>{if(mesh.isMesh)meshes.push(mesh);});
   }else{const mesh=new THREE.Mesh(createShapeGeometry(shape),material);mesh.rotation.set(.13,.3,-.1);scene.add(mesh);meshes.push(mesh);}

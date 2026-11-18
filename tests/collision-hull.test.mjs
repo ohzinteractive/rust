@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 registerHooks({resolve(s,c,next){return next(s==='three'?new URL('../vendor/three.module.js',import.meta.url).href:s,c);}});
 const THREE=await import('../vendor/three.module.js');
 const CANNON=await import('../vendor/cannon-es.js');
-const {GLTFLoader}=await import('../vendor/GLTFLoader.js');
+const {parseGLB}=await import('./draco-node.mjs');
 const {ImportedPeelingSurface}=await import('../imported-peeling.js');
 const {buildCollisionHull}=await import('../collision-hull.js');
 const {optimizeCollisionAxes}=await import('../flake-physics.js');
@@ -29,7 +29,7 @@ function assertClosed(shape){
 
 test('actual horse colliders remain closed and stable through sustained full-exposure peeling',async()=>{
   const bytes=await readFile(new URL('../samples/horse.glb',import.meta.url));
-  const {scene:root}=await new GLTFLoader().parseAsync(bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength),'');
+  const {scene:root}=await parseGLB(bytes);
   root.updateMatrixWorld(true);
   const bounds=new THREE.Box3().setFromObject(root,true),size=bounds.getSize(new THREE.Vector3()),center=bounds.getCenter(new THREE.Vector3());
   const scale=3/Math.max(size.x,size.y,size.z),scene=new THREE.Scene(),wrapper=new THREE.Group();

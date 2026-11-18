@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { GLTFLoader } from './vendor/GLTFLoader.js';
+import {createGLTFLoader} from './gltf-loader.js';
 import { FBXLoader } from './vendor/FBXLoader.js';
 import { createRustMaterial } from './rust-material.js';
 import {prepareMarbleGeometry} from './kelp-marble.js';
@@ -22,7 +22,7 @@ export function disposeModel(root) {
 export function createModelImporter({ scene, uniforms, state, featherMaterial, fernMaterial, onActivate, onClear, invalidate, reducedMotion, notify = () => {} }) {
   const $ = id => document.getElementById(id);
   let current = null, revision = 0;
-  const loader = new GLTFLoader();
+  const loader = createGLTFLoader();
   const status = message => {
     $('model-status').textContent = message;
     if(document.querySelector('.model-panel').hidden && /^(Could not|Choose |Import a)/.test(message))notify(message);

@@ -133,9 +133,9 @@ export function createKelpAttractor({scene,floorY=-1.75,height=11,sunlight=creat
     async loadSample(kind){
       if(!['horse','duck','glasses','jeddah'].includes(kind))throw Error('Unknown underwater model');
       const request=++revision;
-      const [{GLTFLoader},{disposeModel}]=await Promise.all([import('./vendor/GLTFLoader.js'),import('./model-import.js')]);
+      const [{createGLTFLoader},{disposeModel}]=await Promise.all([import('./gltf-loader.js'),import('./model-import.js')]);
       if(disposed||request!==revision)return false;
-      const gltf=await new GLTFLoader().loadAsync(`./samples/${kind}.glb`);
+      const gltf=await createGLTFLoader().loadAsync(`./samples/${kind}.glb`);
       try{
         if(disposed||request!==revision)return false;
         const root=gltf.scene,positions=[],point=new THREE.Vector3();root.updateMatrixWorld(true);
