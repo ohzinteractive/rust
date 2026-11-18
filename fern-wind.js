@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import {seededRandom} from './plume-lsystem/random.js';
+import {createFernKinetic} from './fern-kinetic.js';
 
 export function createChangingWind(seed=1){
   let random=seededRandom(seed),elapsed=0,duration=8,from=0,to=0,fromStrength=1,toStrength=1;
@@ -27,8 +28,19 @@ export function createWindmill(parent,floorY){
   const tail=new THREE.Mesh(new THREE.BoxGeometry(.12,.1,.012),wood);tail.position.set(0,0,-.28);tail.rotation.y=Math.PI/2;head.add(tail);
   const tailArm=new THREE.Mesh(new THREE.BoxGeometry(.014,.014,.28),metal);tailArm.position.z=-.14;head.add(tailArm);
   const trails=createWindTrails(group);
+  let style='windmill',sculpture=null,lastStrength=0,lastDirection=0;
   group.traverse(n=>{if(n.isMesh)n.castShadow=true;});
-  return {group,update(dt,strength,direction){head.rotation.y=Math.atan2(-Math.cos(direction*Math.PI/180),-Math.sin(direction*Math.PI/180));rotor.rotation.z=(rotor.rotation.z+dt*strength*9)%(Math.PI*2);trails.update(dt,strength,direction);},dispose(){trails.dispose();group.traverse(n=>n.geometry?.dispose());metal.dispose();wood.dispose();group.removeFromParent();}};
+  return {group,get style(){return style;},setStyle(value){
+    style=value==='kinetic'?'kinetic':'windmill';
+    if(style==='kinetic'&&!sculpture)sculpture=createFernKinetic(group);
+    mast.visible=head.visible=style==='windmill';
+    if(sculpture){sculpture.group.visible=style==='kinetic';sculpture.update(0,lastStrength,lastDirection);}
+  },update(dt,strength,direction){
+    lastStrength=strength;lastDirection=direction;
+    head.rotation.y=Math.atan2(-Math.cos(direction*Math.PI/180),-Math.sin(direction*Math.PI/180));rotor.rotation.z=(rotor.rotation.z+dt*strength*9)%(Math.PI*2);
+    if(style==='kinetic')sculpture.update(dt,strength,direction);
+    trails.update(dt,strength,direction);
+  },dispose(){sculpture?.dispose();trails.dispose();group.traverse(n=>n.geometry?.dispose());metal.dispose();wood.dispose();group.removeFromParent();}};
 }
 
 // Intersect the pointer with a horizontal air plane through the rotor hub.

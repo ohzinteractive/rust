@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from './vendor/GLTFLoader.js';
 import { FBXLoader } from './vendor/FBXLoader.js';
 import { createRustMaterial } from './rust-material.js';
+import {prepareMarbleGeometry} from './kelp-marble.js';
 import { metalPresets } from './metal-presets.js';
 import { ImportedPeelingSurface } from './imported-peeling.js';
 import { retargetAnimation } from './model-animation.js';
@@ -18,7 +19,7 @@ export function disposeModel(root) {
   geometries.forEach(g => g.dispose()); skeletons.forEach(s => s.dispose());
 }
 
-export function createModelImporter({ scene, uniforms, state, featherMaterial, onActivate, onClear, invalidate, reducedMotion, notify = () => {} }) {
+export function createModelImporter({ scene, uniforms, state, featherMaterial, fernMaterial, onActivate, onClear, invalidate, reducedMotion, notify = () => {} }) {
   const $ = id => document.getElementById(id);
   let current = null, revision = 0;
   const loader = new GLTFLoader();
@@ -74,7 +75,13 @@ export function createModelImporter({ scene, uniforms, state, featherMaterial, o
     $('model-animation').disabled=(state.material==='cloth'||state.material==='fern');
     $('animation-toggle').disabled=(state.material==='cloth'||state.material==='fern')||!current.action;
     if((state.material==='cloth'||state.material==='fern')){
-      root.traverse(mesh=>{if(originals.has(mesh))mesh.material=originals.get(mesh);});
+      root.traverse(mesh=>{
+        if(!originals.has(mesh))return;
+        if(state.material==='fern'&&fernMaterial){
+          if(!mesh.geometry.hasAttribute('marblePosition'))prepareMarbleGeometry(mesh.geometry);
+          mesh.material=fernMaterial;
+        }else mesh.material=originals.get(mesh);
+      });
       for(const slot of slots)if(slot.select)slot.select.disabled=true;
       $('layers-view').disabled=true;
       $('model-peeling-note').textContent=state.material==='fern'?'Ferns root on the model’s still pose and grow, release spores and renew over its surface.':'Cloth drapes over a still pose. Use Redrape to drop a fresh sheet.';

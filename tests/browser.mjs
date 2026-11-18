@@ -12,6 +12,7 @@ import {checkKelp} from './kelp-browser.mjs';
 import {checkKelpFish} from './kelp-fish-browser.mjs';
 import {checkKelpAttractor} from './kelp-attractor-browser.mjs';
 import {checkMarbleArtifacts} from './marble-artifacts-browser.mjs';
+import {checkFernMarble,checkFernSurfaceGrowth} from './fern-marble-browser.mjs';
 import {checkKelpOrbit} from './kelp-orbit-browser.mjs';
 import {checkFishVariety} from './fish-variety-browser.mjs';
 import {checkKelpSamples,checkKelpModelSize,selectModel} from './kelp-samples-browser.mjs';
@@ -45,7 +46,11 @@ try{
  let loaded=false;for(let i=0;i<100;i++){await delay(200);loaded=await run("document.readyState==='complete'&&!document.getElementById('loading')");if(loaded||errors.length)break;}
  assert.equal(errors.length,0,JSON.stringify(errors));assert(loaded,'Scene did not finish loading');
  assert(await run("document.getElementById('webgl-error').hidden"));
- if(process.argv.includes('--fish-variety-only')){
+ if(process.argv.includes('--fern-growth-only')){
+   await checkFernSurfaceGrowth({run});assert.equal(errors.length,0,JSON.stringify(errors));
+ }else if(process.argv.includes('--fern-marble-only')){
+   await checkFernMarble({run});assert.equal(errors.length,0,JSON.stringify(errors));
+ }else if(process.argv.includes('--fish-variety-only')){
    await checkFishVariety({run,call});assert.equal(errors.length,0,JSON.stringify(errors));
  }else if(process.argv.includes('--kelp-orbit-only')){
    await checkKelpOrbit({run,call});assert.equal(errors.length,0,JSON.stringify(errors));

@@ -270,6 +270,38 @@ test('changing wind stays smooth, repeats after reset, and windmill faces incomi
   mill.dispose();assert.equal(root.children.length,0);
 });
 
+test('kinetic wind option animates independent bearings, rests in calm air, and releases resources',async()=>{
+  const {createWindmill}=await import('../fern-wind.js');
+  const root=new THREE.Group(),mill=createWindmill(root,-1.75);
+  mill.setStyle('kinetic');const sculpture=mill.group.getObjectByName('Kinetic wind sculpture');
+  assert(sculpture.visible);assert.equal(mill.group.children[0].visible,false);assert.equal(mill.group.children[1].visible,false);
+  const bearings=['Sculpture balance arm','Sculpture red bearing','Sculpture lower balance'].map(name=>sculpture.getObjectByName(name));
+  const before=bearings.map(node=>node.rotation.y);mill.update(1,.5,90);
+  assert(bearings.every((node,i)=>node.rotation.y!==before[i]));
+  const moving=bearings.map(node=>node.quaternion.toArray());mill.update(1,0,180);mill.update(0,.8,270);
+  assert.deepEqual(bearings.map(node=>node.quaternion.toArray()),moving);
+  for(let frame=0;frame<100;frame++){
+    mill.update(.1,.7,frame*7);
+    mill.group.updateMatrixWorld(true);
+    const bounds=new THREE.Box3().setFromObject(sculpture);
+    assert(bounds.min.y>=-1.751&&bounds.max.y<-.6);
+    sculpture.traverse(node=>{if(node.geometry)assert(node.geometry.attributes.position.array.every(Number.isFinite));});
+  }
+  mill.setStyle('windmill');assert.equal(sculpture.visible,false);assert(mill.group.children[1].visible);
+  mill.setStyle('kinetic');assert.equal(mill.group.getObjectByName('Kinetic wind sculpture'),sculpture);
+  const resources=new Set();sculpture.traverse(node=>{if(node.isMesh){resources.add(node.geometry);resources.add(node.material);}});
+  let disposed=0;for(const resource of resources)resource.addEventListener('dispose',()=>disposed++);
+  mill.dispose();assert.equal(disposed,resources.size);assert.equal(root.children.length,0);
+});
+
+test('changing wind sculptures preserves fern populations and survives rebuilding',()=>{
+  const fern=createFern({scene:new THREE.Scene()});fern.rebuild({fronds:6,density:.25});
+  const dispersal=createFernDispersal({scene:new THREE.Scene(),fern});dispersal.rebuild();dispersal.setVisible(true);dispersal.setPlaying(true);dispersal.advance(.1);
+  const before=dispersal.stats;dispersal.setWindIndicator('kinetic');assert.deepEqual(dispersal.stats,before);
+  dispersal.rebuild();assert.equal(dispersal.windIndicator,'kinetic');assert(dispersal.group.getObjectByName('Kinetic wind sculpture').visible);
+  dispersal.setWindIndicator('windmill');assert.equal(dispersal.windIndicator,'windmill');dispersal.dispose();fern.dispose();
+});
+
 test('pointer wind travels from the windmill toward the cursor and grows with distance',async()=>{
   const {pointerFernWind}=await import('../fern-wind.js');
   const camera=new THREE.PerspectiveCamera(45,1,.1,100);camera.position.set(4,5,7);camera.lookAt(0,0,0);camera.updateMatrixWorld();
@@ -314,6 +346,10 @@ test('fern surface anchors sample real triangles and offspring follow their surf
   assert(habitat.intersect(new THREE.Vector3(2,.3,0),new THREE.Vector3(0,.3,0)));
   const fern=createFern({scene});fern.rebuild({fronds:6,density:.25});const sim=createFernDispersal({scene,fern,maxColonies:24});sim.setSurface(habitat);sim.rebuild();sim.setVisible(true);
   const colonies=sim.group.getObjectByName('New fern colonies').children;assert(colonies.length>5);
+  assert(colonies.every(c=>c.userData.growthDelay>=.5&&c.userData.growthDelay<=3),'Surface spores germinate promptly');
+  sim.setSpeed(4);sim.setPlaying(true);for(let i=0;i<240;i++)sim.advance(1/60);
+  assert(colonies.every(c=>sim.inspectPlant(c.userData.id).fronds.some(f=>f.visible)),'Every surface seedling shows fronds within four seconds at the surface default speed');
+  sim.setSpeed(1);
   for(const colony of colonies){const normal=new THREE.Vector3(0,1,0).applyQuaternion(colony.quaternion);assert(normal.dot(colony.position.clone().sub(mesh.position).normalize())>.9);assert(colony.position.distanceTo(mesh.position)>.96);}
   sim.setPlaying(true);for(let i=0;i<1500;i++)sim.advance(.05);assert(sim.stats.grown>0);assert(sim.stats.emitted>90);
   sim.dispose();fern.dispose();mesh.geometry.dispose();mesh.material.dispose();
@@ -329,6 +365,16 @@ test('fern coating samples every mesh of a model in world coordinates',async()=>
   a.geometry.dispose();b.geometry.dispose();a.material.dispose();b.material.dispose();
 });
 
+test('surface collision filtering preserves endpoint tolerance and rejects distant flights',async()=>{
+  const {createFernSurface}=await import('../fern-surface.js');
+  const mesh=new THREE.Mesh(new THREE.PlaneGeometry(2,2)),habitat=createFernSurface(mesh);
+  assert(habitat.intersect(new THREE.Vector3(0,0,.1),new THREE.Vector3(0,0,.005)),'Hits slightly beyond the endpoint remain valid');
+  assert.equal(habitat.intersect(new THREE.Vector3(0,0,.1),new THREE.Vector3(0,0,.02)),null);
+  assert.equal(habitat.intersect(new THREE.Vector3(4,4,.1),new THREE.Vector3(4,4,-.1)),null);
+  assert.equal(habitat.intersect(new THREE.Vector3(0,0,1),new THREE.Vector3(0,0,1)),null);
+  mesh.geometry.dispose();mesh.material.dispose();
+});
+
 test('windmill stays outside the object and its fern canopy at a fixed corner',async()=>{
   const {windmillCorner}=await import('../fern-wind.js');
   for(const bounds of [new THREE.Box3(new THREE.Vector3(-1,-2,-1),new THREE.Vector3(1,1,1)),new THREE.Box3(new THREE.Vector3(3,-1,-4),new THREE.Vector3(5,4,-2))]){
@@ -338,37 +384,45 @@ test('windmill stays outside the object and its fern canopy at a fixed corner',a
 });
 
 
-test('dead ferns accumulate soil height and new ferns root on the previous crown',()=>{
+test('dead ferns leave soil and litter without automatically cloning their crown',()=>{
   const scene=new THREE.Scene(),fern=createFern({scene});fern.rebuild({fronds:6,density:.25});
   const sim=createFernDispersal({scene,fern,maxColonies:1});sim.rebuild();sim.setVisible(true);sim.setWind(0);sim.setSpeed(32);sim.setPlaying(true);
   for(let i=0;i<400&&sim.stats.deposits===0;i++)sim.advance(.05);
-  assert(sim.stats.deposits>0);const firstHeight=sim.floorHeight(0,0);assert(firstHeight> -1.75);
-  for(let i=0;i<80;i++)sim.advance(.05);
+  assert(sim.stats.deposits>0);assert(sim.floorHeight(0,0)>-1.75);
+  for(let i=0;i<400;i++)sim.advance(.05);
   const bed=sim.group.getObjectByName('New fern colonies');
-  assert(bed.children.some(c=>Math.hypot(c.position.x,c.position.z)<.001&&c.position.y>=firstHeight-.001),'A replacement roots above the original crown');
-  const litter=sim.group.getObjectByName('Persistent fallen fern fronds');assert(litter.count>0);
-  for(let i=0;i<500;i++)sim.advance(.05);
-  assert(sim.floorHeight(0,0)>firstHeight,'Successive generations build more ground');assert(litter.count>1);
-  sim.rebuild();assert.equal(sim.floorHeight(0,0),-1.75);assert.equal(sim.stats.deposits,0);sim.dispose();fern.dispose();
+  assert(!bed.children.some(c=>Math.hypot(c.position.x,c.position.z)<.001),'No automatic replacement at the original crown');
+  assert(sim.group.getObjectByName('Persistent fallen fern fronds').count>0);
+  sim.rebuild();assert.equal(sim.floorHeight(0,0),-1.75);assert.equal(sim.stats.deposits,0);assert.equal(sim.stats.dormantSpores,0);sim.dispose();fern.dispose();
 });
 
-test('a full fern population reserves every old crown for renewal despite incoming spores',()=>{
+test('full fern populations establish later generations at actual new spore landing sites',()=>{
   const scene=new THREE.Scene(),fern=createFern({scene});fern.rebuild({fronds:6,density:.25});
   const sim=createFernDispersal({scene,fern,maxColonies:8});sim.rebuild();sim.setVisible(true);sim.setWind(.6,0);sim.setSpeed(32);sim.setPlaying(true);
-  for(let i=0;i<700&&sim.stats.colonies<8;i++)sim.advance(.05);
-  assert.equal(sim.stats.colonies,8);
-  const bed=sim.group.getObjectByName('New fern colonies'),key=c=>c.position.x.toFixed(5)+','+c.position.z.toFixed(5);
-  const sites=new Map(bed.children.filter(c=>c.userData.stage!=='dead').map(c=>[key(c),{id:c.userData.id,height:c.position.y}])),renewed=new Set();
-  assert.equal(sites.size,8);
-  for(let i=0;i<600;i++){
-    sim.advance(.05);assert(sim.stats.colonies<=8);
-    for(const c of bed.children){
-      assert(sites.has(key(c)),'An incoming spore cannot steal a reserved population slot');
-      const old=sites.get(key(c));if(c.userData.id!==old.id){assert(c.position.y>old.height);renewed.add(key(c));}
+  const key=p=>p.x.toFixed(5)+','+p.z.toFixed(5),landings=new Set(),seen=new Set();
+  const bed=sim.group.getObjectByName('New fern colonies');
+  function observe(){
+    for(const p of sim.landings)landings.add(key(p));
+    for(const c of bed.children)if(!seen.has(c.userData.id)){
+      assert(landings.has(key(c.position)),'Each new crown comes from a real spore landing');
+      assert(Math.abs(c.position.y-sim.floorHeight(c.position.x,c.position.z))<1e-6,'Seedlings root on the local soil');
+      seen.add(c.userData.id);
     }
+    assert(sim.stats.colonies<=8);assert(sim.stats.dormantSpores<=512);
   }
-  assert.equal(renewed.size,sites.size,'Every established crown gets a successor at the same x/z');
-  sim.dispose();fern.dispose();
+  for(let i=0;i<700&&sim.stats.colonies<8;i++){sim.advance(.05);observe();}
+  assert.equal(sim.stats.colonies,8);
+  const sites=new Set(bed.children.filter(c=>c.userData.stage!=='dead').map(c=>key(c.position)));
+  const initialBorn=sim.stats.born;let moved=false,banked=false;
+  for(let i=0;i<600;i++){
+    sim.advance(.05);observe();banked ||= sim.stats.dormantSpores>0;
+    for(const c of bed.children)if(c.userData.id>initialBorn&&!sites.has(key(c.position)))moved=true;
+  }
+  assert(banked,'Landed spores wait while the population is full');
+  assert(sim.stats.born>initialBorn,'Vacancies support subsequent generations');
+  assert(moved,'New generations spread beyond the original crown sites');
+  assert(sim.stats.deposits>8,'Multiple generations leave litter');
+  sim.rebuild();assert.equal(sim.stats.dormantSpores,0);sim.dispose();fern.dispose();
 });
 
 test('accumulated soil batches many patches, preserves heights and frees its buffers on reset',async()=>{

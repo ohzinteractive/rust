@@ -16,8 +16,10 @@ export function createFernSurface(source){
   }
   }
   const ray=new THREE.Ray(),delta=new THREE.Vector3(),hitPoint=new THREE.Vector3(),cells=new Map(),cellSize=.35;
+  const segmentBounds=new THREE.Box3(),seen=new Set();
   for(const triangle of triangles){
     const box=new THREE.Box3().setFromPoints(triangle.vertices);
+    triangle.box=box;
     for(let x=Math.floor(box.min.x/cellSize);x<=Math.floor(box.max.x/cellSize);x++)for(let y=Math.floor(box.min.y/cellSize);y<=Math.floor(box.max.y/cellSize);y++)for(let z=Math.floor(box.min.z/cellSize);z<=Math.floor(box.max.z/cellSize);z++){
       const key=x+','+y+','+z;if(!cells.has(key))cells.set(key,[]);cells.get(key).push(triangle);
     }
@@ -29,11 +31,16 @@ export function createFernSurface(source){
     const triangle=triangles[lo],u=Math.sqrt(random()),v=random(),[a,b,c]=triangle.vertices;
     return {point:a.clone().multiplyScalar(1-u).addScaledVector(b,u*(1-v)).addScaledVector(c,u*v).addScaledVector(triangle.normal,.008),normal:triangle.normal.clone()};
   },intersect(from,to){
+    segmentBounds.makeEmpty().expandByPoint(from).expandByPoint(to).expandByScalar(.008);
+    // Most spores quickly leave the model. Reject those flights before
+    // looking through the densely populated cells of detailed imports.
+    if(!bounds.intersectsBox(segmentBounds))return null;
     delta.subVectors(to,from);const distance=delta.length();if(distance<1e-8)return null;
     ray.set(from,delta.normalize());let nearest=distance+.008,result=null;
-    const lo=new THREE.Vector3().copy(from).min(to),hi=new THREE.Vector3().copy(from).max(to),seen=new Set();
+    const lo=segmentBounds.min,hi=segmentBounds.max;seen.clear();
     for(let x=Math.floor(lo.x/cellSize);x<=Math.floor(hi.x/cellSize);x++)for(let y=Math.floor(lo.y/cellSize);y<=Math.floor(hi.y/cellSize);y++)for(let z=Math.floor(lo.z/cellSize);z<=Math.floor(hi.z/cellSize);z++)for(const triangle of cells.get(x+','+y+','+z)??[]){
       if(seen.has(triangle))continue;seen.add(triangle);
+      if(!triangle.box.intersectsBox(segmentBounds))continue;
       if(ray.intersectTriangle(...triangle.vertices,false,hitPoint)){
         const d=from.distanceTo(hitPoint);if(d<=nearest){nearest=d;result={point:hitPoint.clone().addScaledVector(triangle.normal,.008),normal:triangle.normal.clone()};}
       }

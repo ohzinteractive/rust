@@ -1,5 +1,6 @@
 import {createFernSurface} from './fern-surface.js';
 import {pointerFernWind} from './fern-wind.js';
+import {createMarbleMaterial,prepareMarbleGeometry} from './kelp-marble.js';
 import {createFernStage} from './fern-stage.js';
 import {createKelp} from './kelp.js';
 import {createKelpEnvironment} from './kelp-environment.js';
@@ -136,9 +137,10 @@ let kelpSavedView=null;
 let kelpShot=null;
 function stopKelpShot(){kelpShot=null;$('kelp-surface').textContent=camera.position.y>kelpEnvironment.surfaceY-.25?'Dive underwater':'Rise to surface';$('kelp-surface').setAttribute('aria-pressed','false');$('kelp-camera-push').textContent='Cinematic push';$('kelp-camera-push').setAttribute('aria-pressed','false');}
 controls.addEventListener('start',stopKelpShot);
-const fernSubstrate=new THREE.MeshStandardMaterial({color:0x283026,roughness:1});
+const fernSubstrate=createMarbleMaterial();
 const fernSettings={...defaultFernSettings};
 let fernWindDirection=25;
+let fernSpeedCustomized=false;
 const fernDispersal=createFernDispersal({scene,fern,floorY,camera});
 const fernLife=createFernLifeCycle({scene,fern,floorY});
 const fernPointer=new THREE.Vector2(),fernWindOrigin=new THREE.Vector3(),fernWindHit=new THREE.Vector3(),fernWindRay=new THREE.Raycaster();
@@ -186,7 +188,7 @@ const mirage=createDesertMirage({renderer,landmark:desertLandmark.group,reducedM
 const oasis=createDesertOasis({scene,floorY,reducedMotion,primaryPalm:palm});
 let desertCamera=null,buildingViewLoading=false;
 
-const models=createModelImporter({scene,uniforms,state,reducedMotion,notify:toast,featherMaterial:feathers.substrate,
+const models=createModelImporter({scene,uniforms,state,reducedMotion,notify:toast,featherMaterial:feathers.substrate,fernMaterial:fernSubstrate,
   invalidate(){if(state.material==='feathers')feathers.update();renderDirty=true;renderer.shadowMap.needsUpdate=true;},
   onActivate(name,peeling){
     if(state.material==='kelp')state.material='metal';
@@ -421,7 +423,9 @@ function refreshFeathers(){
   const active=state.material==='feathers'&&!palmMode;
   const interior=mazeNavigation?.active&&state.shape==='maze'&&!models.active;
   feathers.setCourtyardExclusion(interior?{center:mazeNavigation.room.interior.ritual.center,radius:.44}:null);
-  core.material=interior?mazeNavigation.room.interior.wallMaterial:active?feathers.substrate:state.material==='fern'&&$('fern-on-object').checked?fernSubstrate:coreMat;
+  const fernOnObject=state.material==='fern'&&$('fern-on-object').checked;
+  if(fernOnObject&&!core.geometry.hasAttribute('marblePosition'))prepareMarbleGeometry(core.geometry);
+  core.material=interior?mazeNavigation.room.interior.wallMaterial:active?feathers.substrate:fernOnObject?fernSubstrate:coreMat;
   surface.mesh.visible=!active&&!interior&&state.material!=='cloth'&&!(state.material==='fern'&&$('fern-on-object').checked);
   if(active){
     const maze=state.shape==='maze'&&!models.active;
@@ -900,6 +904,11 @@ function fitFernSpread(){
 }
 function rebuildFern(){
   fernDispersal.clear();fern.rebuild(fernSettings);fernDispersal.setSurface($('fern-on-object').checked?createFernSurface(models.active?models.meshes:core):null);fernDispersal.rebuild();fernDispersal.setWind(fernSettings.wind,fernWindDirection);
+  if(!fernSpeedCustomized){
+    fernDispersal.setSpeed(fernDispersal.surfaceMode?4:1);
+    $('fern-simulation-speed').value=fernDispersal.speed;
+    $('fern-simulation-speed-value').value=fernDispersal.speed+'×';
+  }
   fernDispersal.setVariableWind($('fern-variable-wind').checked);
   if(fernLife.active)fernLife.seek(fernLife.progress);$('fern-count').textContent=fern.stats.fronds+' fronds';
   syncFernDispersal();renderDirty=true;renderer.shadowMap.needsUpdate=true;
@@ -929,6 +938,7 @@ $('fern-spores-release').onclick=()=>{
   showFernOptions(false);renderDirty=true;renderer.shadowMap.needsUpdate=true;
 };
 $('fern-simulation-speed').oninput=event=>{
+  fernSpeedCustomized=true;
   fernDispersal.setSpeed(Number(event.target.value));$('fern-simulation-speed-value').value=fernDispersal.speed+'×';
 };
 $('fern-population-limit').oninput=event=>{
@@ -936,13 +946,16 @@ $('fern-population-limit').oninput=event=>{
 };
 $('fern-spores-pause').onclick=()=>{fernDispersal.setPlaying(!fernDispersal.playing);syncFernDispersal();};
 $('fern-variable-wind').onchange=event=>fernDispersal.setVariableWind(event.target.checked);
+for(const input of document.querySelectorAll('input[name="fern-wind-indicator"]'))input.onchange=()=>{
+  fernDispersal.setWindIndicator(input.value);syncFernDispersal();renderDirty=true;renderer.shadowMap.needsUpdate=true;
+};
 $('fern-wind-direction').oninput=event=>{
   fernWindDirection=Number(event.target.value);$('fern-wind-direction-value').value=fernWindDirection+'°';
   fernDispersal.setWind(fernSettings.wind,fernWindDirection);
 };
 function syncFernDispersal(){
   const stats=fernDispersal.stats;
-  const air=fernDispersal.wind;$('fern-wind-live').textContent='Wind from '+Math.round((air.direction+180+360)%360)+'° · '+Math.round(air.strength*100)+'% · '+(air.pointer?'following cursor':'windmill faces incoming air');
+  const air=fernDispersal.wind;$('fern-wind-live').textContent='Wind from '+Math.round((air.direction+180+360)%360)+'° · '+Math.round(air.strength*100)+'% · '+(air.pointer?'following cursor':fernDispersal.windIndicator==='kinetic'?'wind drives the kinetic sculpture':'windmill faces incoming air');
   if(state.material==='fern'&&!fernLife.active){const fronds=fernDispersal.inspectPlant(0)?.fronds??[];const visible=fronds.filter(f=>f.visible);$('fern-count').textContent=stats.parentStage==='dead'?stats.colonies+' living ferns':visible.length+' fronds · '+visible.filter(f=>f.unroll<.99).length+' coiled';}
   const status=stats.airborne+' drifting · '+stats.colonies+' ferns · '+stats.grown+' mature · '+stats.drying+' drying · '+stats.died+' died · generation '+stats.generation+(stats.deposits?' · '+stats.deposits+' litter layers':'');
   if($('fern-spores-status').textContent!==status)$('fern-spores-status').textContent=status;

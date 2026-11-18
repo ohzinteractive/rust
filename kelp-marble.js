@@ -3,9 +3,9 @@ import {configureKelpSunlight} from './kelp-lighting.js';
 
 // Weld positions for the cavity estimate without changing the sculpture's
 // smooth normals or topology. Concave edges collect more dirt than ridges.
-export function prepareMarbleGeometry(geometry){
+export function prepareMarbleGeometry(geometry,coordinateBounds){
   geometry.computeBoundingBox();
-  const p=geometry.attributes.position,box=geometry.boundingBox;
+  const p=geometry.attributes.position,box=coordinateBounds??geometry.boundingBox;
   const span=box.getSize(new THREE.Vector3()),extent=Math.max(span.x,span.y,span.z,1e-6);
   const center=box.getCenter(new THREE.Vector3()),nodes=[],lookup=new Map(),ids=[];
   const coords=new Float32Array(p.count*3),cavity=new Float32Array(p.count);
@@ -50,7 +50,7 @@ export function prepareMarbleGeometry(geometry){
   geometry.setAttribute('marbleCavity',new THREE.BufferAttribute(cavity,1));
 }
 
-const noise=`
+export const marbleNoiseGLSL=`
   float marbleHash(vec3 p){p=fract(p*.1031);p+=dot(p,p.yzx+33.33);return fract((p.x+p.y)*p.z);}
   float marbleNoise(vec3 p){
     vec3 i=floor(p),f=fract(p);f=f*f*f*(f*(f*6.0-15.0)+10.0);
@@ -77,8 +77,12 @@ const noise=`
 `;
 
 export function createUnderwaterMarbleMaterial(sunlight){
-  const material=new THREE.MeshPhysicalMaterial({name:'Weathered underwater marble',color:0xc9cec4,roughness:.32,metalness:0,ior:1.46,specularIntensity:.7,clearcoat:.28,clearcoatRoughness:.2,envMapIntensity:.75,shadowSide:THREE.DoubleSide});
-  configureKelpSunlight(material,sunlight,.65);
+  return createMarbleMaterial(sunlight);
+}
+
+export function createMarbleMaterial(sunlight=null){
+  const material=new THREE.MeshPhysicalMaterial({name:sunlight?'Weathered underwater marble':'Weathered marble',color:0xc9cec4,roughness:.32,metalness:0,ior:1.46,specularIntensity:.7,clearcoat:.28,clearcoatRoughness:.2,envMapIntensity:.75,shadowSide:THREE.DoubleSide});
+  if(sunlight)configureKelpSunlight(material,sunlight,.65);
   const compileSunlight=material.onBeforeCompile;
   material.onBeforeCompile=shader=>{
     compileSunlight(shader);
@@ -90,7 +94,7 @@ export function createUnderwaterMarbleMaterial(sunlight){
     `);
     shader.fragmentShader=shader.fragmentShader.replace('#include <common>',`#include <common>
       varying vec3 vMarblePosition;varying float vMarbleCavity;
-      ${noise}
+      ${marbleNoiseGLSL}
     `).replace('#include <color_fragment>',`#include <color_fragment>
       // Volumetric mineral clouds and irregular seams, sampled in object space.
       // Mineral veins stay within the stone; sparse open fissures and pores add relief.
@@ -170,6 +174,6 @@ export function createUnderwaterMarbleMaterial(sunlight){
       reflectedLight.indirectSpecular*=1.0-marbleCavity*.15;
     `);
   };
-  material.customProgramCacheKey=()=>'weathered-underwater-marble-v5';
+  material.customProgramCacheKey=()=>sunlight?'weathered-underwater-marble-v5':'weathered-marble-v5';
   return material;
 }

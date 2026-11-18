@@ -20,6 +20,7 @@
   <main class="workspace">
     <section class="stage" aria-label="Interactive three-dimensional corroding metal cube">
       <nav class="project-credits" aria-label="Project links">
+        <a href="./shape-gate.html" title="Open the swinging shape gate scene">Shape gate ↗</a>
         <a href="./plume/" title="Open the spline L-system feather playground">Plume ↗</a>
         <a href="https://github.com/ohzinteractive/rust" target="_blank" rel="noopener noreferrer">GitHub ↗</a>
         <span>Made by <a href="https://ohzi.io" target="_blank" rel="noopener noreferrer">ohzi.io</a></span>
@@ -177,12 +178,13 @@
           <div class="feather-setting"><div><label for="fern-wind">Wind</label><output id="fern-wind-value" for="fern-wind">25%</output></div><input id="fern-wind" type="range" min="0" max="100" value="25"></div>
           <div class="feather-setting"><div><label for="fern-wind-direction">Wind travel direction</label><output id="fern-wind-direction-value" for="fern-wind-direction">25°</output></div><input id="fern-wind-direction" type="range" min="0" max="360" value="25"></div>
           <label class="feather-flight-help"><input id="fern-variable-wind" type="checkbox" checked> Changing wind · smooth random gusts</label>
+          <fieldset class="feather-style"><legend>Wind sculpture</legend><label><input type="radio" name="fern-wind-indicator" value="windmill" checked><span>Windmill</span></label><label><input type="radio" name="fern-wind-indicator" value="kinetic"><span>Kinetic sculpture</span></label></fieldset>
           <p id="fern-wind-live" class="feather-flight-help">Move the mouse over the scene: air blows from the windmill toward the cursor. Farther away means stronger wind. Leaving the scene restores changing wind.</p>
           <div class="feather-setting"><div><label for="fern-simulation-speed">Simulation speed</label><output id="fern-simulation-speed-value" for="fern-simulation-speed">1×</output></div><input id="fern-simulation-speed" type="range" min="1" max="32" value="1"><p>Speeds up spore flight, growth and every new generation together.</p></div>
           <div class="feather-setting"><div><label for="fern-population-limit">Population limit</label><output id="fern-population-limit-value" for="fern-population-limit">32</output></div><input id="fern-population-limit" type="range" min="8" max="512" step="8" value="32"><p>Maximum living offspring. Dead plants leave room for new growth.</p></div>
           <div class="feather-actions"><button id="fern-spores-release" type="button">Release spores</button><button id="fern-spores-pause" type="button" aria-pressed="false">Pause dispersal</button></div>
           <p id="fern-spores-status" class="feather-flight-help">Spores emerge beneath the fronds and drift to new ground.</p>
-          <p class="feather-flight-help">Golden spores are enlarged for visibility. Each settled spore waits a different amount of time before sprouting. Tiny coiled shoots emerge one at a time from the crown, grow upright, unroll, then spread their leaflets. Opening fronds gradually lower the older leaves. Crowns keep adding and replacing fronds; old leaves brown and droop individually. On the ground, dead ferns remain as litter, gradually raise the soil, and support new growth above them. Only mature crowns with fertile, fully developed fronds release spores. Growth is accelerated and assumes moist ground and successful fertilization after the gametophyte stage. Set wind above zero to carry spores farther.</p>
+          <p class="feather-flight-help">Golden spores are enlarged for visibility. Each settled spore waits a different amount of time before sprouting. Tiny coiled shoots emerge one at a time from the crown, grow upright, unroll, then spread their leaflets. Opening fronds gradually lower the older leaves. Crowns keep adding and replacing fronds; old leaves brown and droop individually. On the ground, dead ferns remain as litter and gradually raise the soil. New ferns establish where windborne spores land; settled spores can wait for room when the population is full. Only mature crowns with fertile, fully developed fronds release spores. Growth is accelerated and assumes moist ground and successful fertilization after the gametophyte stage. Set wind above zero to carry spores farther.</p>
           <div class="feather-actions"><button id="fern-regrow" type="button">New variation</button></div>
         </section>
       </div>

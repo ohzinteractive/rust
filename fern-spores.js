@@ -10,7 +10,7 @@ import {seededRandom} from './plume-lsystem/random.js';
 const MATURITY=FERN_MATURITY,BURST_INTERVAL=18,POOL_SIZE=960;
 export function createFernDispersal({scene,fern,floorY=-1.75,maxColonies=32,camera=null}){
   const group=new THREE.Group();group.name='Windborne fern spores';group.visible=false;scene.add(group);
-  const forestFloor=createFernFloor(group,floorY),replacementSeeds=[],reservedSites=new Set();
+  const forestFloor=createFernFloor(group,floorY),settledSpores=[];
   const changingWind=createChangingWind(fern.settings.seed+177),windmill=createWindmill(group,floorY);
   let pointerWind=null,surfaceHabitat=null;
   let variableWind=false,actualWind={strength:.25,direction:25};
@@ -48,7 +48,7 @@ export function createFernDispersal({scene,fern,floorY=-1.75,maxColonies=32,came
     for(const frond of fern.group.children)if(frond.name==='Fern frond')frond.visible=true;
   }
   function clear(){
-    forestFloor.clear();replacementSeeds.length=0;reservedSites.clear();
+    forestFloor.clear();settledSpores.length=0;
     restoreParent();growthMaterials?.dispose();growthMaterials=null;parentState=null;aging.clear();living=0;died=0;born=0;nextAgingUpdate=0;
     const geometries=new Set();canopies.traverse(mesh=>{if(mesh.isInstancedMesh){mesh.dispose();geometries.add(mesh.geometry);}});for(const geometry of geometries)geometry.dispose();canopies.clear();lodMeshes.length=0;shadowMesh=null;hearts.count=0;viewDirty=true;
     beds.clear();colonies.length=0;sources.length=0;templates.length=0;emitters.length=0;landingHistory.length=0;particles.count=0;
@@ -101,9 +101,7 @@ export function createFernDispersal({scene,fern,floorY=-1.75,maxColonies=32,came
     if(surfaceHabitat){const anchor=surfaceHabitat.sample(random);if(anchor){parentState.root.copy(anchor.point);const q=new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,1,0),anchor.normal);parentState.renderMatrix.compose(parentState.root,q,new THREE.Vector3().setScalar(surfaceHabitat.scale));}}
     const parent={colony:null,generation:0,nextBurst:BURST_INTERVAL,active:true};parentState.emitter=parent;emitters.push(parent);burst(parent,90);if(surfaceHabitat)for(let i=0;i<18;i++){const anchor=surfaceHabitat.sample(random);if(anchor)plant({position:anchor.point,normal:anchor.normal,emitter:parent});}applyParent();growthMaterials.setTime(clock);updateParticles();updateView();
   }
-  function plant(spore){
-    const reserved=surfaceHabitat||spore.replacement?0:reservedSites.size+(parentState&&!parentState.removed&&parentState.stage!=='dead'?1:0);
-    if(living+reserved>=maxColonies||colonies.length>=renderCapacity)return;
+  function plant(spore,remember=true){
     const spacing=fern.settings.length*(surfaceHabitat?surfaceHabitat.scale*.8:1.1);
     if(!surfaceHabitat&&Math.hypot(spore.position.x-windmill.group.position.x,spore.position.z-windmill.group.position.z)<.5+fern.settings.length*1.8)return;
     if(parentState&&!parentState.removed&&(!surfaceHabitat||parentState.stage!=='dead')&&parentState.root.distanceTo(spore.position)<spacing)return;
@@ -111,13 +109,23 @@ export function createFernDispersal({scene,fern,floorY=-1.75,maxColonies=32,came
     for(let x=cellX-1;x<=cellX+1;x++)for(let z=cellZ-1;z<=cellZ+1;z++)for(const c of cells.get(x+','+z)??[]){
       if((surfaceHabitat?c.root.distanceToSquared(spore.position):(c.root.x-spore.position.x)**2+(c.root.z-spore.position.z)**2)<spacing*spacing)return;
     }
+    const parentLiving=parentState&&!parentState.removed&&parentState.stage!=='dead'?1:0;
+    if(living+(surfaceHabitat?0:parentLiving)>=maxColonies||colonies.length>=renderCapacity){
+      // Keep actual landing sites while the population is full. Copy pooled
+      // particle data so subsequent flights cannot move these dormant spores.
+      if(remember&&!surfaceHabitat){
+        if(settledSpores.length>=512)settledSpores.shift();
+        settledSpores.push({position:spore.position.clone(),emitter:{generation:spore.emitter.generation},landedAt:clock});
+      }
+      return;
+    }
     const root=spore.position.clone();if(!surfaceHabitat)root.y=forestFloor.height(root.x,root.z);
     const colony=new THREE.Group();colony.name='Spore-grown fern';colony.position.copy(root);if(surfaceHabitat)colony.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),spore.normal??new THREE.Vector3(0,1,0));beds.add(colony);
     const heart=new THREE.Object3D();heart.name='Settled spore gametophyte';heart.rotation.x=-Math.PI/2;heart.position.y=.012;colony.add(heart);
     const young=new THREE.Group();young.name='Growing young fern';young.rotation.y=random()*Math.PI*2;colony.add(young);
     const used=new Set(colonies.map(c=>c.contactSlot));let contactSlot=1;while(used.has(contactSlot))contactSlot++;contactData.fill(0,contactSlot*128,(contactSlot+1)*128);
     const data={...makeAgeData(clock),contactSlot,group:colony,heart,young,root,generation:spore.emitter.generation+1,mature:false,renderMatrix:new THREE.Matrix4(),cellKey:cellX+','+cellZ};
-    data.growthDelay=4+(data.seed%181)/10;data.landedAt=clock;data.bornAt+=data.growthDelay;
+    data.growthDelay=surfaceHabitat ? .5+(data.seed%26)/10 : 4+(data.seed%181)/10;data.landedAt=clock;data.bornAt+=data.growthDelay;
     colony.userData.growthDelay=data.growthDelay;colony.userData.landedAt=clock;
     colony.userData.id=born+1;colony.userData.generation=data.generation;colonies.push(data);living++;born++;growing.add(data);generation=Math.max(generation,data.generation);
     const key=cellX+','+cellZ;if(!cells.has(key))cells.set(key,[]);cells.get(key).push(data);updateColony(data);
@@ -134,8 +142,8 @@ export function createFernDispersal({scene,fern,floorY=-1.75,maxColonies=32,came
     const wasDead=c.stage==='dead';
     c.stage=c.age>=c.dieAt?'dead':c.age>=c.dryAt?'drying':c.age>=MATURITY?'mature':c.age<0?'waiting':'young';
     if(c.stage==='dead'&&!wasDead){
-      if(!surfaceHabitat){forestFloor.deposit(c.root,fern.settings.length*.95,c.young.rotation?.y??0);reservedSites.add(c);}
-      died++;if(!c.isParent){living--;if(c.mature)grown--;if(surfaceHabitat)releaseCell(c);}
+      if(!surfaceHabitat){forestFloor.deposit(c.root,fern.settings.length*.95,c.young.rotation?.y??0);}
+      died++;if(!c.isParent){living--;if(c.mature)grown--;releaseCell(c);}
       c.emitter.active=false;
     }
 
@@ -160,20 +168,16 @@ export function createFernDispersal({scene,fern,floorY=-1.75,maxColonies=32,came
     const index=cell.indexOf(c);if(index>=0)cell.splice(index,1);
     if(!cell.length)cells.delete(c.cellKey);
   }
-  function retainFern(c){
-    if(surfaceHabitat)return;
-    releaseCell(c);
-    replacementSeeds.push({position:c.root.clone(),replacement:c,emitter:{generation:c.isParent?0:c.generation}});
-  }
   function updateAging(){
-    if(parentState&&!parentState.removed){agePlant(parentState);if(parentState.age>=parentState.dieAt+18){parentState.removed=true;retainFern(parentState);}}
+    if(parentState&&!parentState.removed){agePlant(parentState);if(parentState.age>=parentState.dieAt+18){parentState.removed=true;}}
     for(const c of aging){
       updateColony(c);
-      if(c.age>=c.dieAt+18){aging.delete(c);c.removed=true;c.group.removeFromParent();colonies.splice(colonies.indexOf(c),1);retainFern(c);}
+      if(c.age>=c.dieAt+18){aging.delete(c);c.removed=true;c.group.removeFromParent();colonies.splice(colonies.indexOf(c),1);}
     }
-    if(!surfaceHabitat)for(let i=replacementSeeds.length-1;i>=0&&living<maxColonies;i--){
-      const seed=replacementSeeds[i],before=born;plant(seed);if(born>before){reservedSites.delete(seed.replacement);replacementSeeds.splice(i,1);}
-    }
+    // Old spores lose viability. Available slots go to real landing sites,
+    // never to an automatic clone of a dead crown.
+    while(settledSpores.length&&clock-settledSpores[0].landedAt>180)settledSpores.shift();
+    while(settledSpores.length&&living+(parentState&&!parentState.removed&&parentState.stage!=='dead'?1:0)<maxColonies)plant(settledSpores.shift(),false);
     for(let i=emitters.length-1;i>=0;i--)if(!emitters[i].active)emitters.splice(i,1);
   }
   function updateView(viewCamera=camera){
@@ -270,11 +274,13 @@ export function createFernDispersal({scene,fern,floorY=-1.75,maxColonies=32,came
     setSurface(value){surfaceHabitat=value;},
     get surfaceMode(){return !!surfaceHabitat;},
     get wind(){return {...actualWind,variable:variableWind,pointer:!!pointerWind};},
+    get windIndicator(){return windmill.style;},
+    setWindIndicator(value){windmill.setStyle(value);},
     getWindOrigin(out){out.copy(windmill.group.position);out.y+=.85;return out;},
     setPointerWind(value){pointerWind=value;if(value){actualWind={...value};windmill.update(0,value.strength,value.direction);}else actualWind={strength:wind,direction};},
     setVariableWind(value){variableWind=!!value;},
     get playing(){return playing;},get speed(){return speed;},get populationLimit(){return maxColonies;},
-    get stats(){return {...forestFloor.stats,renewing:reservedSites.size,airborne,landed,emitted,colonies:living,grown,generation,reproducing:emitters.length,elapsed:clock,drying:colonies.filter(c=>c.stage==='drying').length,dead:colonies.filter(c=>c.stage==='dead').length,died,born,parentStage:parentState?.stage??'mature',parentSize:1,parentDryness:parentState?.dryness??0};},
+    get stats(){return {...forestFloor.stats,dormantSpores:settledSpores.length,airborne,landed,emitted,colonies:living,grown,generation,reproducing:emitters.length,elapsed:clock,drying:colonies.filter(c=>c.stage==='drying').length,dead:colonies.filter(c=>c.stage==='dead').length,died,born,parentStage:parentState?.stage??'mature',parentSize:1,parentDryness:parentState?.dryness??0};},
     get renderStats(){return {...renderStats,lod:[...renderStats.lod],matrixUploads};},
     get landings(){return [...landingHistory.slice(landingCursor),...landingHistory.slice(0,landingCursor)].map(p=>p.clone());},
     getBounds(){const bounds=new THREE.Box3();bounds.expandByPoint(new THREE.Vector3(0,floorY,0));for(const c of colonies)bounds.expandByPoint(c.root);bounds.expandByScalar(fern.settings.length*1.8);bounds.min.y=floorY;bounds.max.y=floorY+fern.settings.length*1.8;return bounds;},
