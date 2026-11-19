@@ -92,6 +92,23 @@ test('a growing palm frond rises folded, then opens and lowers at the crown in c
   palm.dispose();
 });
 
+test('development seeks before the first rebuild are retained when the palm is built',()=>{
+  const palm=createPalmTree({scene:new THREE.Scene(),showDevelopment:true});
+  palm.seekDevelopment(1);
+  palm.seekDevelopment(.52);
+  assert.equal(palm.stats.fronds,0);
+  palm.rebuild();
+  const trunk=palm.group.getObjectByName('Curved palm trunk');
+  assert(trunk.parent.visible&&trunk.parent.scale.y>0&&trunk.parent.scale.y<.5);
+  const scale=trunk.parent.scale.clone(),drawCount=trunk.geometry.drawRange.count;
+  palm.seekDevelopment(.52);
+  assert.deepEqual(trunk.parent.scale,scale);
+  assert.equal(trunk.geometry.drawRange.count,drawCount);
+  palm.seekDevelopment(1);
+  assert.equal(trunk.parent.scale.y,1);
+  palm.dispose();
+});
+
 test('the palm can be scrubbed from a grounded seed to a full crown and back',()=>{
   const scene=new THREE.Scene(),palm=createPalmTree({scene,showDevelopment:true});
   palm.rebuild();

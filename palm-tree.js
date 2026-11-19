@@ -239,6 +239,9 @@ export function createPalmTree({scene,floorY=-1.75,growFronds=false,showDevelopm
     development=THREE.MathUtils.clamp(progress,0,1);
     const smooth=(start,end)=>THREE.MathUtils.smoothstep(development,start,end);
     seedling.seek(development);
+    // Environment sync can seek before the first rebuild creates the rig.
+    // Keep the requested development so rebuild applies it to the new tree.
+    if(!developmentRig)return;
     const {trunk,trunkMesh,boots,bootRows,bud,leaves}=developmentRig;
     const count=leaves.length;
     // Give the first few leaves longer on screen, then shorten the interval
