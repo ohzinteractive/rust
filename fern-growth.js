@@ -60,11 +60,14 @@ const shaderFunctions=`
 attribute vec2 fernInfo;
 attribute float fernPart;
 attribute vec4 fernLife;
+#ifdef FERN_CONTACTS
 attribute float fernContactRow;
 uniform sampler2D fernContacts;
+#endif
 uniform float fernTime;
 uniform vec4 fernFronds[32];
 uniform float fernFrondCount;
+uniform float fernMinimumCrownSize;
 varying vec3 vFernTint;
 varying float vFernVisibility;
 varying float vFernPartThreshold;
@@ -92,7 +95,8 @@ FernPose fernPose(vec3 original,vec3 originalNormal){
   float stress=smoothstep(fernLife.y,fernLife.z,age),dry=max(smoothstep(life*.65,life,leafAge),stress);
   float visibility=smoothstep(0.0,.7,leafAge)*(1.0-smoothstep(life+2.0,period,leafAge))*(1.0-smoothstep(fernLife.z,fernLife.z+18.0,age));
   float growth=.08+.92*smoothstep(0.0,24.0,leafAge);
-  float size=.35+(1.2+mod(seed*7.0,17.0)/17.0*.45-.35)*smoothstep(6.0,110.0,birth);
+  float crownSize=1.2+mod(seed*7.0,17.0)/17.0*.45;
+  float size=mix(fernMinimumCrownSize,crownSize,smoothstep(6.0,110.0,birth));
   float co=cos(angle),si=sin(angle);
   vec2 root=vec2(co,si)*.035;
   vec2 crownRoot=vec2(co,si)*.003;
@@ -116,12 +120,15 @@ FernPose fernPose(vec3 original,vec3 originalNormal){
   if(!stalk&&t>u)xy+=vec2(-sin(tangent),cos(tangent))*abs(local.z)*growth*(1.0-open)*.65*rise;
   xy+=vec2(.3,-1.0)*dry*len*.6*t*t;
   vec3 pos=vec3(xy*size,local.z*(stalk?thickness:(.025+.975*open)*rise)*size*growth);
+  #ifdef FERN_CONTACTS
   vec4 contact=texture2D(fernContacts,vec2((fi+.5)/32.0,(fernContactRow+.5)/1025.0));
   float contactDrop=mix(contact.r,contact.g,1.0-exp(-max(0.0,fernTime-contact.b)*3.0));
   pos.y=max(stalk?0.0:.001,pos.y-contactDrop*opening*t*t);
+  #endif
   vec2 nn=rotation*n.xy;n.xy=nn;
   result.position=vec3(crownRoot.x+co*pos.x+si*pos.z,pos.y,crownRoot.y-si*pos.x+co*pos.z);
-  result.normal=normalize(vec3(co*n.x+si*n.z,n.y,-si*n.x+co*n.z));
+  vec3 rotatedNormal=vec3(co*n.x+si*n.z,n.y,-si*n.x+co*n.z);
+  result.normal=dot(rotatedNormal,rotatedNormal)>.000001?normalize(rotatedNormal):vec3(0.0,1.0,0.0);
   result.tint=mix(mix(vec3(.72,.9,.68),vec3(.94,1.02,.65),1.0-opening),vec3(1.05,.62,.26),dry);
   result.tint=mix(result.tint,vec3(.8,.22,.06),smoothstep(life,period,leafAge));
   result.visibility=visibility;
@@ -136,14 +143,16 @@ const sheddingVertex=`
 vFernPartThreshold=developed.visibility>.999?0.0:(fernPart<0.0?.02:.08+.84*fract(sin(fernPart*12.9898+fernLife.w*3.17)*43758.5453));
 `;
 
-export function createFernGrowthMaterials(fern,contactTexture){
+export function createFernGrowthMaterials(fern,contactTexture,{minimumCrownSize=.35}={}){
   const time={value:0},fronds={value:Array.from({length:32},()=>new THREE.Vector4(1,0,1,.5))};
   fern.group.children.filter(f=>f.name==='Fern frond').forEach((f,i)=>fronds.value[i].set(f.userData.length,f.rotation.y,f.userData.pitch,f.userData.bend));
   const material=fern.group.getObjectByName('Divided fern foliage').material.clone();
   const depthMaterial=new THREE.MeshDepthMaterial({depthPacking:THREE.RGBADepthPacking,side:THREE.DoubleSide});
   function compile(shader,depth){
     shader.uniforms.fernContacts={value:contactTexture};shader.uniforms.fernTime=time;shader.uniforms.fernFronds=fronds;shader.uniforms.fernFrondCount={value:fern.settings.fronds};
-    shader.vertexShader=shader.vertexShader.replace('#include <common>','#include <common>\n'+shaderFunctions);
+    shader.uniforms.fernMinimumCrownSize={value:minimumCrownSize};
+    const contacts=contactTexture?'\n#define FERN_CONTACTS\n':'\n';
+    shader.vertexShader=shader.vertexShader.replace('#include <common>','#include <common>'+contacts+shaderFunctions);
     if(!depth)shader.vertexShader=shader.vertexShader.replace('#include <beginnormal_vertex>','#include <beginnormal_vertex>\nFernPose developed=fernPose(position,objectNormal);objectNormal=developed.normal;');
     shader.vertexShader=shader.vertexShader.replace('#include <begin_vertex>',depth?'FernPose developed=fernPose(position,vec3(0.0,1.0,0.0));vec3 transformed=developed.position;vFernTint=developed.tint;vFernVisibility=developed.visibility;':'vec3 transformed=developed.position;vFernTint=developed.tint;vFernVisibility=developed.visibility;');
     shader.vertexShader=shader.vertexShader.replace('vFernVisibility=developed.visibility;','vFernVisibility=developed.visibility;'+sheddingVertex);
@@ -151,7 +160,7 @@ export function createFernGrowthMaterials(fern,contactTexture){
     if(!depth)shader.fragmentShader=shader.fragmentShader.replace('#include <color_fragment>','#include <color_fragment>\ndiffuseColor.rgb*=vFernTint;');
     shader.fragmentShader=shader.fragmentShader.replace('#include <alphatest_fragment>','#include <alphatest_fragment>\n'+discardFragment);
   }
-  material.onBeforeCompile=shader=>compile(shader,false);material.customProgramCacheKey=()=> 'fern-frond-development-v4';
-  depthMaterial.onBeforeCompile=shader=>compile(shader,true);depthMaterial.customProgramCacheKey=()=> 'fern-frond-depth-v4';
+  material.onBeforeCompile=shader=>compile(shader,false);material.customProgramCacheKey=()=> contactTexture?'fern-frond-development-v4':'fern-frond-development-fixed';
+  depthMaterial.onBeforeCompile=shader=>compile(shader,true);depthMaterial.customProgramCacheKey=()=> contactTexture?'fern-frond-depth-v4':'fern-frond-depth-fixed';
   return {material,depthMaterial,setTime(value){time.value=value;},dispose(){material.dispose();depthMaterial.dispose();}};
 }

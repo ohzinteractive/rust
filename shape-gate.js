@@ -1,7 +1,7 @@
 import * as T from 'three';
 import {OrbitControls} from './vendor/OrbitControls.js';
 import {swingCenterHeight} from './shape-gate-motion.js';
-import {createShapeGate} from './shape-gate-object.js';
+import {createShapeGate,formatGateTime,gateTimelineDuration} from './shape-gate-object.js';
 import {createGateAmbientOcclusion} from './shape-gate-occlusion.js';
 const scene=new T.Scene();scene.background=new T.Color('#abc2bf');scene.fog=new T.Fog('#abc2bf',18,45);
 const camera=new T.PerspectiveCamera(42,innerWidth/innerHeight,.1,80);camera.position.set(-6,4,9);
@@ -42,11 +42,32 @@ function sync(){
  pause.textContent=playing?'Pause':'Play';
  pause.setAttribute('aria-pressed',String(!playing));
 }
-pause.onclick=()=>{playing=!playing;sync();};
+pause.onclick=()=>{
+ if(!playing&&gate.timelineTime>=gateTimelineDuration)gate.seekTimeline(0);
+ playing=!playing;
+ sync();
+};
 sync();
+const weathering=document.getElementById('weathering'),weatheringValue=document.getElementById('weathering-value');
+const growthSpeed=document.getElementById('growth-speed');
+weathering.max=gateTimelineDuration;
+function syncTimeline(){
+ weathering.value=Math.floor(gate.timelineTime);
+ weatheringValue.value=formatGateTime(gate.timelineTime);
+ weathering.setAttribute('aria-valuetext',weatheringValue.value);
+}
+weathering.oninput=()=>{
+ playing=false;
+ gate.seekTimeline(weathering.valueAsNumber);
+ sync();
+ syncTimeline();
+};
+document.getElementById('regrow').onclick=()=>{gate.seekTimeline(0);syncTimeline();};
+syncTimeline();
 const speed=document.getElementById('speed'),clock=new T.Clock();
 renderer.setAnimationLoop(()=>{
- gate.advance(Math.min(clock.getDelta(),.05),camera,playing?speed.valueAsNumber:0);
+ gate.advance(Math.min(clock.getDelta(),.05),camera,playing?speed.valueAsNumber:0,playing?Number(growthSpeed.value):0);
+ syncTimeline();
  gate.captureGoldReflection();
  ambientOcclusion.render(scene,camera);
 });

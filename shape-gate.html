@@ -4,12 +4,18 @@ body{margin:0;background:#abc2bf;font:14px system-ui;color:#263634}canvas{displa
 .floor-size-name{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
 .floor-size output{font-size:12px;color:#596460}
 .floor-size input{width:100%;margin:4px 0 0}
-</style><script type="importmap">{"imports":{"three":"./vendor/three.module.js"}}</script></head><body><aside><a href="./">← Back to studio</a><h1>Shape gate</h1><p>A suspended sculpture swings through its own silhouette.</p><select id="model" aria-label="Model"><option>Cube</option><option>Sphere</option><option>Cone</option><option>Torus</option><option value="horse">Horse</option><option value="duck">Duck</option><option value="jeddah">Tower</option><option value="glasses">Glasses</option><option value="arc de triomphe 3d">Arch</option></select> <button id="pause">Pause</button><p><label><input id="cycle" type="checkbox" checked> Morph through model list</label></p><p><label>Custom GLB mesh <input id="upload" type="file" accept=".glb"></label></p><label>Speed <input id="speed" type="range" min="0.2" max="2" step="0.1" value="1"></label>
+</style><script type="importmap">{"imports":{"three":"./vendor/three.module.js"}}</script></head><body><aside><a href="./">← Back to studio</a><h1>Shape gate</h1><p>A suspended sculpture swings through its own silhouette.</p><select id="model" aria-label="Model"><option>Cube</option><option>Sphere</option><option>Cone</option><option>Torus</option><option value="horse">Horse</option><option value="duck">Duck</option><option value="jeddah">Tower</option><option value="glasses">Glasses</option><option value="arc de triomphe 3d">Arch</option></select> <button id="pause">Pause</button><p><label><input id="cycle" type="checkbox" checked> Morph through model list</label></p><p><label>Custom GLB mesh <input id="upload" type="file" accept=".glb"></label></p><label>Swing speed <input id="speed" type="range" min="0.2" max="2" step="0.1" value="1"></label>
 <div class="floor-size">
   <div class="floor-size-name">
     <label for="floor-size">Floor size</label>
     <output id="floor-size-value" for="floor-size">10 × 7 tiles</output>
   </div>
   <input id="floor-size" type="range" min="0" max="8" step="1" value="0" aria-valuetext="10 by 7 tiles">
+</div>
+<div class="floor-size">
+ <div class="floor-size-name"><label for="weathering">Growth timeline</label><output id="weathering-value" for="weathering">0:08</output></div>
+ <input id="weathering" type="range" min="0" max="600" step="1" value="8">
+ <label>Growth speed <select id="growth-speed"><option value="1">1×</option><option value="2">2×</option><option value="5">5×</option><option value="10" selected>10×</option><option value="20">20×</option></select></label>
+ <button id="regrow" type="button">Restart growth</button>
 </div>
 <p id="status" role="status">Drag to orbit · Scroll to zoom</p></aside><footer>SHAPE STUDIES / 01</footer><script type="module" src="./shape-gate.js"></script></body></html>

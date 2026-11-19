@@ -84,3 +84,26 @@ test('shore coves form a closed boundary and local ground details stay on the dr
   }
   oasis.dispose();
 });
+
+test('bank palms grow at different rates on the gate timeline and rewind in place',()=>{
+  const oasis=createDesertOasis({scene:new THREE.Scene()});
+  oasis.rebuild();
+  oasis.setGroveGrowth(0);
+  const growing=oasis.group.getObjectByName('Growing oasis palms');
+  assert.equal(growing.children.length,15);
+  assert(growing.visible&&!oasis.grove.visible&&!oasis.understory.visible);
+  const trees=growing.children;
+  const height=tree=>tree.getObjectByName('Palm growing heart').getWorldPosition(new THREE.Vector3()).y;
+  const start=trees.map(height);
+  const roots=trees.map(tree=>tree.localToWorld(new THREE.Vector3(-.55,0,0)));
+  oasis.setGroveGrowth(.5);
+  const grown=trees.map(height);
+  assert(grown.every((y,i)=>y>start[i]));
+  assert(new Set(grown.map((y,i)=>(y-start[i]).toFixed(2))).size>1);
+  assert(trees.every((tree,i)=>tree.localToWorld(new THREE.Vector3(-.55,0,0)).distanceTo(roots[i])<1e-6));
+  oasis.setGroveGrowth(0);
+  assert.deepEqual(trees.map(height),start);
+  oasis.setGroveGrowth(null);
+  assert(!growing.visible&&oasis.grove.visible&&oasis.understory.visible);
+  oasis.dispose();
+});

@@ -3,14 +3,20 @@ import {gateBevel,gateDepth} from './shape-gate-aperture.js';
 import {gateRimDepth,gateRimInnerRadius,gateRimRadius} from './shape-gate-geometry.js';
 import {createMarbleBorderMaterial,createPolishedMarbleFloor} from './shape-gate-floor.js';
 import {metalPresets} from './metal-presets.js';
+import {createCorrosionUniforms,createRustMaterial} from './rust-material.js';
 import {seededRandom} from './plume-lsystem/random.js';
+import {gateRootSites,createReclaimingPalms,tileRootPressure,matureTileTilt} from './shape-gate-weathering.js';
+import {createCrackFlowers} from './shape-gate-flowers.js';
+import {createGateSand} from './shape-gate-sand.js';
+import {createFernPlanting} from './fern-planting.js';
+import {swingModelSize} from './shape-gate-motion.js';
 
 const sideOffset = gateRimDepth / 2 + .105;
 const endOffset = gateRimRadius + .125;
 const channelWidth = .136;
 const rimHeight = .07;
 
-export function createGateFloor({includeGround=true,platformHeight=.22,reflectionSize=640}={}){
+export function createGateFloor({includeGround=true,platformHeight=.22,reflectionSize=640,age={value:0}}={}){
  const halfLength=endOffset+.025, halfWidth=sideOffset+.025;
  // The aluminum frame spans eight columns and one centered row.
  const frameColumns=8, columns=frameColumns+2, rows=7;
@@ -41,14 +47,44 @@ export function createGateFloor({includeGround=true,platformHeight=.22,reflectio
   :new T.Group();
  floor.name='Shape Gate platform';
  floor.receiveShadow=true;
+ const rootSites=gateRootSites(tileSize,new T.Vector2(tileHalfLength,tileHalfWidth));
+ const palms=createReclaimingPalms(floor,rootSites,age);
+ const fernLength=1.32;
+ const fernRandom=seededRandom(6197);
+ const plantings=[];
+ for(let j=0;j<=rows;j++)for(let i=0;i<=columns;i++){
+  const gapX=i*tileSize.x-tileHalfLength,gapZ=tileHalfWidth-j*tileSize.y;
+  const alongX=fernRandom()>.5;
+  const jitter=(fernRandom()-.5)*.42;
+  const x=T.MathUtils.clamp(gapX+(alongX?jitter:0),-tileHalfLength,tileHalfLength);
+  const z=T.MathUtils.clamp(gapZ+(alongX?0:jitter),-tileHalfWidth,tileHalfWidth);
+  const scale=.68+fernRandom()*.42;
+  // Reserve the swing lane and the wheel faces for the whole mature crown.
+  const reach=fernLength*1.3*scale;
+  if(Math.abs(x)-reach<=swingModelSize+.10||Math.abs(z)-reach<=gateRimDepth/2+.06)continue;
+  if(rootSites.some(site=>Math.hypot(site.x-x,site.z-z)<.3))continue;
+  const tx=T.MathUtils.clamp(Math.floor((x+tileHalfLength)/tileSize.x),0,columns-1);
+  const ty=T.MathUtils.clamp(Math.floor((-z+tileHalfWidth)/tileSize.y),0,rows-1);
+  const cx=(tx+.5)*tileSize.x-tileHalfLength,cy=(ty+.5)*tileSize.y-tileHalfWidth;
+  const pressure=tileRootPressure(cx,cy,rootSites);
+  const lift=pressure.x+(x-cx)*pressure.y+(-z-cy)*pressure.z;
+  plantings.push({x,z,scale,rotation:fernRandom()*Math.PI*2,delay:fernRandom()*185,
+   heightAt:age=>-.013+lift*T.MathUtils.smoothstep(age,.08,.95)});
+ }
+ // A few early sprouts establish the scene while the other gaps fill in.
+ plantings.sort((a,b)=>a.delay-b.delay).slice(0,4).forEach((site,i)=>{site.delay=i*7;});
+ const ferns=createFernPlanting(floor,plantings,{fronds:9,length:fernLength,minimumCrownSize:.82,regrow:true});
+ const flowers=createCrackFlowers(floor,{tileSize,origin:new T.Vector2(tileHalfLength,tileHalfWidth),rootSites,opening:new T.Vector2(halfLength,halfWidth),age});
+ const rootHeave={value:0};
  const marble=createPolishedMarbleFloor(tiles(tileHalfLength,tileHalfWidth),tileSize,tileHalfLength,tileHalfWidth,{
-  resolution:reflectionSize,updateInterval:includeGround?0:100
+  resolution:reflectionSize,updateInterval:includeGround?0:100,age,rootSites,rootHeave
  });
- const edge=new T.Mesh(platformEdge(tileHalfLength,tileHalfWidth),createMarbleBorderMaterial());
+ const sand=createGateSand(tiles(tileHalfLength,tileHalfWidth),tileSize,new T.Vector2(tileHalfLength,tileHalfWidth),rootSites,age);
+ const edge=new T.Mesh(platformEdge(tileHalfLength,tileHalfWidth),createMarbleBorderMaterial(age));
  edge.name='Beveled platform edge';
  edge.castShadow=true;
  edge.receiveShadow=true;
- floor.add(marble,edge);
+ floor.add(sand.mesh,marble,edge);
 
  const depth=gateRimRadius+.12;
  const well=new T.BoxGeometry(2*halfLength,depth,2*halfWidth);
@@ -74,9 +110,11 @@ export function createGateFloor({includeGround=true,platformHeight=.22,reflectio
   marble.geometry.dispose();
   edge.geometry.dispose();
   // Keep the tile origin and reflection target fixed as tiles are added.
-  marble.geometry=new T.ShapeGeometry(tiles(x,y));
+  marble.geometry=marble.userData.createTileGeometry(tiles(x,y));
+  sand.resize(tiles(x,y));
   edge.geometry=platformEdge(x,y);
   halfSize.set(x+rimWidth.x,y+rimWidth.y);
+  flowers.rebuild(border);
   expansion=border;
   return size;
  }
@@ -87,7 +125,12 @@ export function createGateFloor({includeGround=true,platformHeight=.22,reflectio
   edge.geometry.dispose();
   edge.geometry=platformEdge(halfSize.x-rimWidth.x,halfSize.y-rimWidth.y);
  }
- return {floor,resize,halfSize,setPlatformHeight};
+ return {floor,resize,halfSize,setPlatformHeight,advance(dt,extraGrowth=0){
+  rootHeave.value=matureTileTilt(extraGrowth);
+  palms.advance(dt,extraGrowth);
+  flowers.advance();
+  ferns.seek(age.value,age.value+extraGrowth);
+ }};
 }
 
 function createChannel(length){
@@ -218,10 +261,13 @@ function createBrushMotion(material){
  };
 }
 
-export function createGateBaseSeal(){
+export function createGateBaseSeal(age={value:0}){
  const seal=new T.Group();
  seal.name='Brush seal';
- const aluminum=new T.MeshStandardMaterial({color:metalPresets.aluminum.colors.metal,metalness:.48,roughness:.31});
+ const profile=metalPresets.aluminum;
+ const colors={...profile.colors,teal:0x53645a,tealLight:0x7d8b72,pink:0xefc51a,pinkLight:0xf7d74b};
+ const aluminum=createRustMaterial(createCorrosionUniforms(profile,colors,{age,scale:14,seed:1.7}),false,null,{staticSurface:true});
+ aluminum.name='Weathering aluminum brush rails';
  const nylon=new T.MeshStandardMaterial({vertexColors:true,roughness:.88,side:T.DoubleSide});
  const update=createBrushMotion(nylon);
  const faceClearance=gateDepth/2+gateBevel+.012;

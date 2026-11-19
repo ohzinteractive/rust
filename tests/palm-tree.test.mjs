@@ -67,3 +67,122 @@ test('young growth opens through a continuous crown above brown hanging fronds',
   assert.equal(palm.group.children.filter(child=>child.userData.layer==='dry').length,15);
   palm.rebuild({dryFraction:0});assert.equal(palm.group.children.filter(child=>child.userData.layer==='dry').length,0);palm.dispose();
 });
+
+test('a growing palm frond rises folded, then opens and lowers at the crown in calm air',()=>{
+  const scene=new THREE.Scene(),palm=createPalmTree({scene,growFronds:true});
+  palm.rebuild({wind:0});
+  palm.group.visible=true;
+  const shoot=palm.group.getObjectByName('Growing palm frond');
+  const root=new THREE.Vector3();
+  shoot.getWorldPosition(root);
+  const stem=shoot.children[1];
+  const vertices=stem.geometry.attributes.position;
+  const tip=()=>stem.localToWorld(new THREE.Vector3().fromBufferAttribute(vertices,vertices.count-5)).sub(root);
+  assert.equal(shoot.visible,false);
+  for(let i=0;i<80;i++)assert(palm.advance(.05));
+  const upright=tip();
+  const folded=shoot.scale.z;
+  assert(upright.y>Math.hypot(upright.x,upright.z)*2);
+  for(let i=0;i<170;i++)palm.advance(.05);
+  const spread=tip();
+  assert(spread.y<upright.y*.6);
+  assert(Math.hypot(spread.x,spread.z)>Math.hypot(upright.x,upright.z)*2);
+  assert(shoot.scale.z>folded*5);
+  assert(shoot.getWorldPosition(new THREE.Vector3()).distanceTo(root)<1e-6);
+  palm.dispose();
+});
+
+test('the palm can be scrubbed from a grounded seed to a full crown and back',()=>{
+  const scene=new THREE.Scene(),palm=createPalmTree({scene,showDevelopment:true});
+  palm.rebuild();
+  const seed=palm.group.getObjectByName('Palm seed');
+  const shoot=palm.group.getObjectByName('First palm shoot');
+  const trunk=palm.group.getObjectByName('Curved palm trunk');
+  palm.seekDevelopment(0);
+  assert(seed.visible&&!shoot.visible&&!trunk.parent.visible);
+  palm.seekDevelopment(.23);
+  assert(shoot.visible&&shoot.scale.y>.5);
+  palm.seekDevelopment(.52);
+  assert(trunk.parent.visible&&trunk.parent.scale.y<.5);
+  const base=trunk.localToWorld(new THREE.Vector3(-.55,-1.75,0));
+  assert(base.distanceTo(new THREE.Vector3(-.55,-1.75,0))<1e-6);
+  palm.seekDevelopment(1);
+  assert(!seed.visible&&!shoot.visible&&trunk.parent.scale.y===1);
+  palm.seekDevelopment(0);
+  assert(seed.visible&&!shoot.visible&&!trunk.parent.visible);
+  palm.dispose();
+});
+
+test('studio leaves emerge individually in rings of three before the next ring rises',()=>{
+  const palm=createPalmTree({scene:new THREE.Scene(),showDevelopment:true,growFronds:true});
+  palm.rebuild();
+  const leaves=[];
+  palm.group.traverse(object=>{if(object.name==='Green palm frond')leaves.push(object);});
+  const emerged=new Set();
+  let previous;
+  for(let frame=0;frame<=600&&emerged.size<7;frame++){
+    palm.seekDevelopment(frame/1000);
+    const fresh=leaves.filter(leaf=>leaf.visible&&!emerged.has(leaf));
+    assert(fresh.length<=1);
+    if(!fresh.length)continue;
+    const leaf=fresh[0],blade=leaf.children[0].children[0];
+    assert(blade.scale.z<blade.scale.y*.2);
+    if(previous){
+      if(emerged.size%3===0)assert(leaf.position.y>previous.leaf.position.y);
+      else{
+        assert.equal(leaf.position.y,previous.leaf.position.y);
+        assert(Math.abs(Math.cos(blade.parent.rotation.y-previous.heading)+.5)<1e-6);
+      }
+      assert(previous.blade.rotation.z<previous.pitch);
+      assert(previous.blade.scale.z>previous.width);
+    }
+    previous={leaf,blade,heading:blade.parent.rotation.y,pitch:blade.rotation.z,width:blade.scale.z};
+    emerged.add(leaf);
+  }
+  assert.equal(emerged.size,7);
+  palm.dispose();
+});
+
+test('an old studio leaf browns, falls to the floor and fades independently of new leaves',()=>{
+  const palm=createPalmTree({scene:new THREE.Scene(),floorY:0,showDevelopment:true});
+  palm.rebuild();
+  const leaves=[];
+  palm.group.traverse(object=>{if(object.name==='Green palm frond')leaves.push(object);});
+  const seekLeafTime=time=>palm.seekDevelopment(.15+.85*(time/84)**(1/1.8));
+  seekLeafTime(5);
+  const old=leaves.at(-1),blade=old.children[0].children[0],leaf=blade.children[0];
+  const root=old.position.clone(),pitch=blade.rotation.z;
+  seekLeafTime(15.3);
+  assert(old.position.distanceTo(root)<1e-6);
+  assert(blade.rotation.z<pitch&&leaf.material.color.g<.6);
+  assert.equal(leaves.at(-5).children[0].children[0].children[0].material.opacity,1);
+  seekLeafTime(17.5);
+  assert(old.position.y<root.y&&old.position.y>.012);
+  seekLeafTime(20);
+  assert(Math.abs(old.position.y-(.003+old.userData.landing.clearance*blade.scale.y))<1e-6);
+  assert(leaf.material.opacity>0&&leaf.material.opacity<1);
+  seekLeafTime(5);
+  assert(old.position.distanceTo(root)<1e-6&&old.scale.y===1&&leaf.material.opacity===1);
+  palm.dispose();
+});
+
+test('a dry studio branch stays on its original ring and lands without flattening',()=>{
+  const palm=createPalmTree({scene:new THREE.Scene(),showDevelopment:true,floorY:0});
+  palm.rebuild({wind:0});
+  const branch=palm.group.getObjectByName('Dry palm frond');
+  palm.seekDevelopment(.73);
+  const anchor=branch.position.clone();
+  for(let frame=74;frame<=83;frame++){
+    palm.seekDevelopment(frame/100);
+    assert(branch.position.distanceTo(anchor)<1e-6);
+  }
+  let lastY=anchor.y;
+  for(let frame=831;frame<=880;frame++){
+    palm.seekDevelopment(frame/1000);
+    assert(branch.position.y<=lastY+1e-6);
+    assert.equal(branch.scale.x,branch.scale.y);
+    lastY=branch.position.y;
+  }
+  assert(lastY<anchor.y*.5);
+  palm.dispose();
+});

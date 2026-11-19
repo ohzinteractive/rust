@@ -1,73 +1,66 @@
 import * as T from 'three';
-import {gateRimRadius} from './shape-gate-geometry.js';
+import {swingModelSize} from './shape-gate-motion.js';
 
-const lightCenter=new T.Vector3(1.65,1.45,4.4);
-const lightHalfSize=new T.Vector2(1.75,1);
-
-export function createGoldMaterial(probe,worldToGate){
+export function createGoldMaterial(probe,worldToGate,floorHalfSize,cube=false){
  const material=new T.MeshStandardMaterial({
-  name:'Polished gold',color:0xffd37a,roughness:.16,metalness:1,
+  name:'Polished gold',color:0xffd37a,roughness:.105,metalness:1,
   side:T.DoubleSide,envMap:probe.renderTarget.texture
  });
  const environment=T.ShaderChunk.envmap_physical_pars_fragment.replace(
   'envMapRotation * reflectVec, roughness',
   'envMapRotation * goldReflectionDirection(reflectVec), roughness'
- ).replace(
-  'return envMapColor.rgb * envMapIntensity;',
-  'return (envMapColor.rgb + goldStudioHighlight(reflectVec)) * envMapIntensity;'
  );
+ const cubeEdge={value:cube?1:0};
+ material.userData.cubeEdge=cubeEdge;
  material.onBeforeCompile=shader=>{
   shader.uniforms.goldProbePosition={value:probe.position};
   shader.uniforms.goldWorldToGate={value:worldToGate};
-  shader.uniforms.goldLightCenter={value:lightCenter};
-  shader.uniforms.goldLightHalfSize={value:lightHalfSize};
+  shader.uniforms.goldFloorHalfSize={value:floorHalfSize};
+  shader.uniforms.goldCubeEdge=cubeEdge;
   shader.vertexShader=shader.vertexShader.replace('#include <common>',`#include <common>
    varying vec3 vGoldPosition;
+   varying vec3 vGoldRoundedNormal;
+   uniform float goldCubeEdge;
+  `).replace('#include <defaultnormal_vertex>',`#include <defaultnormal_vertex>
+   vGoldRoundedNormal=transformedNormal;
+   if(goldCubeEdge>0.0){
+    // Polish the cube edges with curved normals while retaining its fit
+    // through the precisely matched marble opening.
+    const float innerFace=${(swingModelSize/2-.045).toFixed(4)};
+    vec3 edgeNormal=position-clamp(position,vec3(-innerFace),vec3(innerFace));
+    if(dot(edgeNormal,edgeNormal)>0.000001)vGoldRoundedNormal=normalMatrix*normalize(edgeNormal);
+   }
   `).replace('#include <worldpos_vertex>',`#include <worldpos_vertex>
    vGoldPosition=(modelMatrix*vec4(transformed,1.0)).xyz;
   `);
   shader.fragmentShader=shader.fragmentShader.replace('#include <common>',`#include <common>
    varying vec3 vGoldPosition;
+   varying vec3 vGoldRoundedNormal;
+   uniform float goldCubeEdge;
    uniform vec3 goldProbePosition;
    uniform mat4 goldWorldToGate;
-   uniform vec3 goldLightCenter;
-   uniform vec2 goldLightHalfSize;
-
-   float goldSurfaceDistance(vec3 origin,vec3 ray){
-    float distanceToHit=1000.0;
-    if(ray.y<-.001)distanceToHit=-origin.y/ray.y;
-    if(abs(ray.z)>.001){
-     float wheelDistance=-origin.z/ray.z;
-     vec3 wheelHit=origin+ray*wheelDistance;
-     if(wheelDistance>.001&&wheelDistance<distanceToHit&&wheelHit.y>=0.0&&length(wheelHit.xy)<${gateRimRadius.toFixed(4)}){
-      distanceToHit=wheelDistance;
-     }
-    }
-    return distanceToHit;
-   }
+   uniform vec2 goldFloorHalfSize;
 
    vec3 goldReflectionDirection(vec3 ray){
     // Reproject nearby hits from the surface point into the moving cube map.
     vec3 origin=(goldWorldToGate*vec4(vGoldPosition,1.0)).xyz;
     vec3 localRay=mat3(goldWorldToGate)*ray;
-    vec3 fromProbe=vGoldPosition+ray*goldSurfaceDistance(origin,localRay)-goldProbePosition;
-    return dot(fromProbe,fromProbe)>.000001?normalize(fromProbe):ray;
+    // Reproject the near checkerboard. The rotating aperture and distant
+    // scenery are sampled directly from the live cube map.
+    if(localRay.y>=-.001)return ray;
+    float distanceToFloor=-origin.y/localRay.y;
+    vec2 floorHit=(origin+localRay*distanceToFloor).xz;
+    if(distanceToFloor<=0.0)return ray;
+    vec3 fromProbe=vGoldPosition+ray*distanceToFloor-goldProbePosition;
+    if(dot(fromProbe,fromProbe)<=.000001)return ray;
+    vec2 edge=abs(floorHit)/goldFloorHalfSize;
+    float weight=1.0-smoothstep(.90,1.0,max(edge.x,edge.y));
+    return normalize(mix(ray,normalize(fromProbe),weight));
    }
-
-   vec3 goldStudioHighlight(vec3 ray){
-    vec3 origin=(goldWorldToGate*vec4(vGoldPosition,1.0)).xyz;
-    ray=mat3(goldWorldToGate)*ray;
-    if(abs(ray.z)<.001)return vec3(0.0);
-    vec3 center=goldLightCenter*vec3(sign(ray.z),1.0,sign(ray.z));
-    float distanceToLight=(center.z-origin.z)/ray.z;
-    if(distanceToLight<=0.0)return vec3(0.0);
-    vec2 hit=abs((origin+ray*distanceToLight).xy-center.xy)/goldLightHalfSize;
-    vec2 falloff=1.0-smoothstep(vec2(.34,.16),vec2(1.0),hit);
-    float occlusion=length(ray)*(distanceToLight-goldSurfaceDistance(origin,ray));
-    float visible=1.0-smoothstep(-.08,.08,occlusion);
-    return vec3(1.05,.94,.80)*falloff.x*falloff.y*visible;
-   }
-  `).replace('#include <envmap_physical_pars_fragment>',environment);
+  `).replace('#include <envmap_physical_pars_fragment>',environment)
+   .replace('#include <normal_fragment_begin>',`#include <normal_fragment_begin>
+    if(goldCubeEdge>0.0)normal=normalize(mix(normal,normalize(vGoldRoundedNormal)*faceDirection,goldCubeEdge));
+   `);
  };
  return material;
 }
@@ -94,4 +87,45 @@ export function createGoldReflectionSky(){
  const sky=new T.Mesh(new T.SphereGeometry(50,24,12),material);
  sky.renderOrder=-1;
  return sky;
+}
+
+export function createGoldReflectionLights(){
+ const group=new T.Group();
+ group.name='Gold reflection softboxes';
+ const panels=[
+  {position:[-.55,1.40,3.3],size:[.72,2.3],color:0xffeed6,intensity:2.2},
+  {position:[.55,1.40,-3.3],size:[.72,2.3],color:0xffeed6,intensity:2.2},
+  {position:[3.0,1.25,3.4],size:[1.15,2.5],color:0xffe9cc,intensity:2.2},
+  {position:[-2.65,1.4,-3.5],size:[1.55,2.5],color:0xf1f5ff,intensity:1.8},
+  {position:[-2.5,1.25,3.5],size:[1.1,2.5],color:0xf1f5ff,intensity:2.8},
+  {position:[1.1,3.5,-2.7],size:[2.5,1.2],color:0xffe5c2,intensity:2.7}
+ ];
+ for(const {position,size,color,intensity} of panels){
+  const material=new T.ShaderMaterial({
+   toneMapped:false,transparent:true,depthWrite:false,
+   uniforms:{panelColor:{value:new T.Color(color).multiplyScalar(intensity)}},
+   vertexShader:`
+    varying vec2 vPanelUv;
+    void main(){
+     vPanelUv=uv;
+     gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);
+    }
+   `,
+   fragmentShader:`
+    varying vec2 vPanelUv;
+    uniform vec3 panelColor;
+    void main(){
+     vec2 edge=abs(vPanelUv*2.0-1.0);
+     vec2 falloff=1.0-smoothstep(vec2(.15,.55),vec2(1.0),edge);
+     gl_FragColor=vec4(panelColor,falloff.x*falloff.y);
+    }
+   `
+  });
+  const panel=new T.Mesh(new T.PlaneGeometry(...size),material);
+  panel.position.set(...position);
+  panel.lookAt(0,1.5,0);
+  panel.layers.set(1);
+  group.add(panel);
+ }
+ return group;
 }

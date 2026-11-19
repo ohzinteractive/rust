@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import {Reflector} from './vendor/Reflector.js';
-import {createPalmTree,defaultPalmSettings} from './palm-tree.js';
+import {createPalmTree,defaultPalmSettings,posePalmFrond} from './palm-tree.js';
 import {seededRandom} from './plume-lsystem/random.js';
 import {oasisCenter as center,oasisRadii as radii,oasisOutline,oasisWaterRadius,oasisOutlineGLSL} from './oasis-shape.js';
 import {createDesertGroundcover} from './desert-groundcover.js';
@@ -121,16 +121,19 @@ export function createDesertOasis({scene,floorY=-1.75,reducedMotion=false,primar
   }
   terrainGeometry.computeVertexNormals();const terrain=new THREE.Mesh(terrainGeometry,shoreMaterial);terrain.name='Oasis sand drifts';terrain.receiveShadow=true;group.add(terrain);
   const groundcover=createDesertGroundcover({heightAt:(x,z)=>oasisTerrainHeight(x,z,floorY)});group.add(groundcover.group);
-  const library=new THREE.Group(),templates=Array.from({length:3},()=>createPalmTree({scene:library,floorY:0}));
-  const youngTemplates=Array.from({length:2},()=>createPalmTree({scene:library,floorY:0}));
+  const library=new THREE.Group(),templates=Array.from({length:3},()=>createPalmTree({scene:library,floorY:0,growFronds:!reducedMotion}));
+  const youngTemplates=Array.from({length:2},()=>createPalmTree({scene:library,floorY:0,growFronds:!reducedMotion}));
   const grove=new THREE.Group();grove.name='Oasis palm grove';group.add(grove);
   const understory=new THREE.Group();understory.name='Young oasis palms';group.add(understory);
+  const growingGrove=new THREE.Group();growingGrove.name='Growing oasis palms';growingGrove.visible=false;group.add(growingGrove);
+  const bankPalms=[],growingTrees=[];
+  let groveProgress=null;
   // Three loose family clumps occupy the low bank. Trunk height describes
   // age; diameter stays substantial even on the shorter palms.
   const roots=[[-6.1,-.4,0],[-4.9,-.15,0],[-5.3,-1.9,1],[-3.4,-.45,0],[-2.3,-1.4,1],[-3.8,-2.05,2],[.05,-.35,2],[2.15,.9,1]];
   const youngSites=[{parent:1,offset:[-.58,.25]},{parent:1,offset:[.28,.54]},{parent:1,offset:[.56,-.22]},
     {parent:null,offset:[-.6,.35]},{parent:null,offset:[.4,.45]},{parent:7,offset:[-.45,-.05]},{parent:7,offset:[.25,.6]}];
-  let settings={...defaultPalmSettings},signature='',clock=0,fronds=[],reflectionDirty=true,reflectionTime=-1,reflectionRenders=0,primaryY=null;
+  let settings={...defaultPalmSettings},signature='',clock=0,fronds=[],growingFronds=[],reflectionDirty=true,reflectionTime=-1,reflectionRenders=0,primaryY=null;
   const reflectionWorld=new THREE.Matrix4(),reflectionProjection=new THREE.Matrix4(),renderReflection=water.onBeforeRender;
   water.getRenderTarget().isPlanarReflection=true;
   water.onBeforeRender=function(renderer,scene,camera){
@@ -142,7 +145,35 @@ export function createDesertOasis({scene,floorY=-1.75,reducedMotion=false,primar
     }
   };
   function clearGrove(){
-    for(const layer of [grove,understory]){layer.traverse(object=>{if(object.isInstancedMesh)object.dispose();});layer.clear();}fronds=[];
+    for(const layer of [grove,understory]){layer.traverse(object=>{if(object.isInstancedMesh)object.dispose();});layer.clear();}fronds=[];growingFronds=[];
+    for(const tree of growingTrees)tree.dispose();
+    growingTrees.length=0;bankPalms.length=0;
+  }
+  function setGroveGrowth(progress){
+    if(progress===groveProgress&&(progress===null||growingTrees.length))return;
+    if((progress===null)!==(groveProgress===null))reflectionDirty=true;
+    groveProgress=progress;
+    const growing=progress!==null;
+    grove.visible=understory.visible=!growing;
+    growingGrove.visible=growing;
+    if(!growing)return;
+    if(!growingTrees.length){
+      for(const {specimen,profile} of bankPalms){
+        const tree=createPalmTree({scene:growingGrove,floorY:0,showDevelopment:true});
+        tree.rebuild({...profile,wind:settings.wind});
+        tree.group.position.copy(specimen.position);
+        tree.group.quaternion.copy(specimen.quaternion);
+        tree.group.scale.copy(specimen.scale);
+        tree.group.visible=true;
+        growingTrees.push(tree);
+      }
+    }
+    for(const [i,tree] of growingTrees.entries()){
+      const stagger=(i*7%11)/10;
+      const start=.39+.18*stagger;
+      const age=THREE.MathUtils.lerp(start,1,THREE.MathUtils.clamp(progress/(.88+.12*stagger),0,1));
+      tree.seekDevelopment(age);
+    }
   }
   function rebuild(values={}){
     settings={...settings,...values};const key=JSON.stringify({...settings,wind:0});
@@ -156,8 +187,12 @@ export function createDesertOasis({scene,floorY=-1.75,reducedMotion=false,primar
       // Palm geometry starts at x=-.55; compensate so the actual root sits on its bank.
       const y=oasisTerrainHeight(x,z,floorY);
       tree.position.set(x+.55*scale*Math.cos(angle),y,z-.55*scale*Math.sin(angle));tree.userData.root=[x,y,z];
-      tree.traverse(object=>{if(object.userData.layer)fronds.push({group:object,phase:random()*Math.PI*2});});
+      tree.traverse(object=>{
+        if(object.userData.layer)fronds.push({group:object,phase:random()*Math.PI*2});
+        if(object.userData.palmGrowth)growingFronds.push({group:object,offset:i*3.7});
+      });
       grove.add(tree);
+      bankPalms.push({specimen:tree,profile:templates[variant].settings});
     });
     youngTemplates.forEach((tree,i)=>tree.rebuild({...settings,trunkHeight:[.38,.58][i],trunkRadius:settings.trunkRadius*[.92,.98][i],fronds:14,density:Math.max(.25,settings.density*.7),length:settings.length*[.55,.65][i],curve:.18,droop:.65,dryFraction:0,seed:settings.seed+i*223+1481}));
     const youngRandom=seededRandom(settings.seed+1984);
@@ -169,9 +204,14 @@ export function createDesertOasis({scene,floorY=-1.75,reducedMotion=false,primar
       tree.name='Young oasis palm '+(i+1);tree.visible=true;tree.scale.setScalar(scale);tree.rotation.y=angle;
       const y=oasisTerrainHeight(x,z,floorY);
       tree.position.set(x+.55*scale*Math.cos(angle),y,z-.55*scale*Math.sin(angle));tree.userData.root=[x,y,z];tree.userData.parentRoot=[...parentRoot];
-      tree.traverse(object=>{if(object.userData.layer)fronds.push({group:object,phase:youngRandom()*Math.PI*2});});
+      tree.traverse(object=>{
+        if(object.userData.layer)fronds.push({group:object,phase:youngRandom()*Math.PI*2});
+        if(object.userData.palmGrowth)growingFronds.push({group:object,offset:i*5.1});
+      });
       understory.add(tree);
+      bankPalms.push({specimen:tree,profile:youngTemplates[i%youngTemplates.length].settings});
     });
+    if(groveProgress!==null)setGroveGrowth(groveProgress);
     groundcover.rebuild(settings.seed,[...grove.children,...understory.children].map(tree=>tree.userData.root));
     group.updateMatrixWorld(true);
   }
@@ -180,7 +220,7 @@ export function createDesertOasis({scene,floorY=-1.75,reducedMotion=false,primar
     if(enabled){if(primaryY===null)primaryY=primaryPalm.group.position.y;primaryPalm.group.position.y=primaryY+oasisTerrainHeight(-.55,0,floorY)-floorY;}
     else if(primaryY!==null){primaryPalm.group.position.y=primaryY;primaryY=null;}
   }
-  return {group,water,grove,understory,groundcover,rebuild,
+  return {group,water,grove,understory,groundcover,rebuild,setGroveGrowth,
     get stats(){return {palms:grove.children.length+1+understory.children.length,maturePalms:grove.children.length+1,youngPalms:understory.children.length,reflectionRenders};},
     setEnabled(value,sandMaterial){
       if(group.visible!==!!value)reflectionDirty=true;group.visible=!!value;
@@ -189,9 +229,14 @@ export function createDesertOasis({scene,floorY=-1.75,reducedMotion=false,primar
     },
     invalidateReflection(){reflectionDirty=true;},
     setSunDirection(value){water.material.uniforms.uSunDirection.value.copy(value).normalize();reflectionDirty=true;},
-    setWind(value){settings.wind=value;reflectionDirty=true;if(value===0)for(const frond of fronds)frond.group.rotation.set(0,0,0);},
+    setWind(value){settings.wind=value;reflectionDirty=true;for(const tree of growingTrees)tree.setWind(value);if(value===0)for(const frond of fronds)frond.group.rotation.set(0,0,0);},
     advance(dt){
       if(!group.visible||reducedMotion||!(dt>0))return false;clock+=Math.min(dt,.05);water.material.uniforms.uTime.value=clock;
+      if(groveProgress!==null){
+        for(const tree of growingTrees)tree.advance(dt);
+        return true;
+      }
+      for(const {group,offset} of growingFronds)posePalmFrond(group,clock+offset);
       if(settings.wind>0)for(const frond of fronds){frond.group.rotation.z=Math.sin(clock*.8+frond.phase)*settings.wind*.055;frond.group.rotation.x=Math.cos(clock*.65+frond.phase)*settings.wind*.035;}
       return true;
     },

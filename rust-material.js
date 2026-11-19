@@ -62,7 +62,17 @@ const noiseGLSL=`
   }
 `;
 
-export function createRustMaterial(uniforms,isCoating=false,source=null){
+export function createCorrosionUniforms(profile,colors,{age={value:0},scale=4,seed=0,relief=.5,painted=false}={}){
+  const uniforms={uAge:age,uScale:{value:scale},uSeed:{value:seed},uRelief:{value:relief}};
+  for(const [key,value] of Object.entries({Painted:Number(painted),Patina:profile.patina,
+    Passivation:profile.passivation,MetalRoughness:profile.roughness,DepositRoughness:profile.depositRoughness,CorrosionRelief:profile.relief})){
+    uniforms['u'+key]={value};
+  }
+  for(const [key,value] of Object.entries(colors))uniforms['u'+key[0].toUpperCase()+key.slice(1)]={value:new THREE.Color(value)};
+  return uniforms;
+}
+
+export function createRustMaterial(uniforms,isCoating=false,source=null,{staticSurface=false}={}){
   const material=new THREE.MeshStandardMaterial({color:0xffffff,roughness:.64,metalness:.04,side:isCoating?THREE.DoubleSide:THREE.FrontSide,envMapIntensity:.45});
   if(source){
     material.color.copy(source.color || new THREE.Color(0xffffff));
@@ -70,9 +80,11 @@ export function createRustMaterial(uniforms,isCoating=false,source=null){
   }
   material.onBeforeCompile=shader=>{
     Object.assign(shader.uniforms,uniforms);
+    const attributes=staticSurface?'':'attribute vec3 restPosition;attribute float layer;attribute float underside;attribute float flakeAge;attribute float coatEdge;';
+    const surface=staticSurface?'vRest=position;vLayer=0.0;vUnderside=0.0;vFlakeAge=-1.0;vCoatEdge=0.0;':'vRest=restPosition;vLayer=layer;vUnderside=underside;vFlakeAge=flakeAge;vCoatEdge=coatEdge;';
     shader.vertexShader=shader.vertexShader
-      .replace('#include <common>',`#include <common>\nattribute vec3 restPosition;attribute float layer;attribute float underside;attribute float flakeAge;attribute float coatEdge;varying vec3 vRest;varying float vLayer,vUnderside,vFlakeAge,vCoatEdge;`)
-      .replace('#include <begin_vertex>',`#include <begin_vertex>\nvRest=restPosition;vLayer=layer;vUnderside=underside;vFlakeAge=flakeAge;vCoatEdge=coatEdge;`);
+      .replace('#include <common>',`#include <common>\n${attributes}varying vec3 vRest;varying float vLayer,vUnderside,vFlakeAge,vCoatEdge;`)
+      .replace('#include <begin_vertex>',`#include <begin_vertex>\n${surface}`);
     shader.fragmentShader=shader.fragmentShader
       .replace('#include <common>',`#include <common>\n${noiseGLSL}`)
       .replace('#include <color_fragment>',`#include <color_fragment>
@@ -152,6 +164,6 @@ export function createRustMaterial(uniforms,isCoating=false,source=null){
       .replace('#include <metalnessmap_fragment>',`#include <metalnessmap_fragment>\nmetalnessFactor=surfaceMetalness;`)
       .replace('#include <normal_fragment_maps>',`#include <normal_fragment_maps>\nnormal=perturbSurface(-vViewPosition,normal,materialHeight*uRelief*.075);`);
   };
-  material.customProgramCacheKey=()=>`${isCoating?'oxide-peeling-v9':'oxide-substrate-v9'}${source?'-imported':''}`;
+  material.customProgramCacheKey=()=>`${isCoating?'oxide-peeling-v9':'oxide-substrate-v9'}${source?'-imported':''}${staticSurface?'-static':''}`;
   return material;
 }

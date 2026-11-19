@@ -1,6 +1,6 @@
 import * as T from 'three';
 import {createShapeTargets,geometricShapes} from './shape-gate-targets.js';
-import {createSwingClearance,gateMotion,gateTurnClearance,morphEase,phaseForClearance,planNearDiskMorph,swingCenterHeight,swingLength,swingPivotHeight,swingRate} from './shape-gate-motion.js';
+import {createSwingClearance,gateMotion,gateTurnClearance,morphEase,phaseForClearance,planNearDiskMorph,swingCenterHeight,swingModelSize,swingLength,swingPivotHeight,swingRate} from './shape-gate-motion.js';
 import {morphFrames} from './shape-gate-surface.js';
 import {findBridgeAttachment,findRoofAttachment} from './shape-gate-suspension.js';
 import {createGateRimGeometry,createProfiledGateShape,createSlottedGateShape,gateRimDepth,gateRimRadius} from './shape-gate-geometry.js';
@@ -8,40 +8,53 @@ import {cordSlotHalfWidth,crossingRotation,gateBevel,gateDepth,gateRadius} from 
 import {createGLTFLoader} from './gltf-loader.js';
 import {createMarbleMaterial,prepareMarbleGeometry} from './kelp-marble.js';
 import {createGateBaseSeal,createGateFloor} from './shape-gate-base.js';
-import {createGoldMaterial,createGoldReflectionSky} from './shape-gate-gold.js';
+import {createGoldMaterial,createGoldReflectionLights,createGoldReflectionSky} from './shape-gate-gold.js';
+import {weatherGateMaterial,stoneShadowMaterial,refineStoneGeometry} from './shape-gate-weathering.js';
+
+const weatheringDuration=110;
+export const gateTimelineDuration=600;
+
+export function formatGateTime(seconds){
+ const total=Math.floor(seconds);
+ return Math.floor(total/60)+':'+String(total%60).padStart(2,'0');
+}
 
 const shapeGateModels=[...geometricShapes,'horse','duck','jeddah','glasses','arc de triomphe 3d'];
 
 export function createShapeGate({renderer,scene,includeGround=true,shadowLight,onShape=()=>{},onCycle=()=>{},onStatus=()=>{}}){
- const baseSeal=createGateBaseSeal();
- const gateFloor=createGateFloor({includeGround,reflectionSize:includeGround?640:256});
+ const stoneAge={value:.08};
+ const baseSeal=createGateBaseSeal(stoneAge);
+ const gateFloor=createGateFloor({includeGround,reflectionSize:includeGround?640:256,age:stoneAge});
  const group=new T.Group();
  group.name='Shape Gate';
  group.add(gateFloor.floor,baseSeal.seal);
- const marble=createMarbleMaterial();
+ const marble=weatherGateMaterial(createMarbleMaterial(),stoneAge);
+ const stoneDepth=stoneShadowMaterial(stoneAge),stoneDistance=stoneShadowMaterial(stoneAge,true);
  const marbleBounds=new T.Box3(new T.Vector3(-gateRadius,-gateRadius,0),new T.Vector3(gateRadius,gateRadius,gateDepth));
  const goldReflectionTarget=new T.WebGLCubeRenderTarget(includeGround?128:64,{type:T.HalfFloatType});
  const goldReflectionCamera=new T.CubeCamera(.025,includeGround?60:24,goldReflectionTarget);
  const worldToGate=new T.Matrix4();
- const createGold=()=>createGoldMaterial(goldReflectionCamera,worldToGate);
+ const createGold=cube=>createGoldMaterial(goldReflectionCamera,worldToGate,gateFloor.halfSize,cube);
+ goldReflectionCamera.layers.enable(1);
+ group.add(createGoldReflectionLights());
  if(includeGround){
   const reflectionSky=createGoldReflectionSky();
   reflectionSky.layers.set(1);
-  goldReflectionCamera.layers.enable(1);
   group.add(reflectionSky);
  }
  const pivot=new T.Group();pivot.position.y=swingPivotHeight;group.add(pivot);const carrier=new T.Group();carrier.position.y=-swingLength;pivot.add(carrier);
  const cordRadius=.009;
  const cord=new T.Mesh(new T.CylinderGeometry(cordRadius,cordRadius,swingLength,8),new T.MeshStandardMaterial({color:0x252923}));cord.position.y=-swingLength/2;pivot.add(cord);
  let fieldWorker=null,apertureTask=null;
+ let timelineTime=stoneAge.value*weatheringDuration;
  let gate,elapsed=0,cycle=true,revision=0,transition=null,pending=null,automaticRequest=-1,loading=false,sequenceStep=-1;
  const targets=createShapeTargets();let activeShape='Cube';
  let lastBuiltInShape=activeShape;
  const isVertexMorph=(from,to)=>geometricShapes.includes(from)&&geometricShapes.includes(to);
  function hull(points){points.sort((a,b)=>a.x-b.x||a.y-b.y);const cross=(o,a,b)=>(a.x-o.x)*(b.y-o.y)-(a.y-o.y)*(b.x-o.x);const half=arr=>{const h=[];for(const p of arr){while(h.length>1&&cross(h.at(-2),h.at(-1),p)<=0)h.pop();h.push(p);}return h;};return half(points).slice(0,-1).concat(half([...points].reverse()).slice(0,-1));}
  function prepare(root,model){
-  root.updateMatrixWorld(true);const box=new T.Box3().setFromObject(root),center=box.getCenter(new T.Vector3()),size=box.getSize(new T.Vector3()),scale=1.25/Math.max(size.x,size.y,size.z,.001),points=geometricShapes.includes(model)?[]:null,meshes=[];
-  root.traverse(m=>{if(!m.isMesh)return;const g=m.geometry.clone(),p=g.attributes.position,v=new T.Vector3();m.skeleton?.update();for(let i=0;i<p.count;i++){m.getVertexPosition(i,v).applyMatrix4(m.matrixWorld).sub(center).multiplyScalar(scale);p.setXYZ(i,v.x,v.y,v.z);}g.deleteAttribute('skinIndex');g.deleteAttribute('skinWeight');g.computeVertexNormals();g.computeBoundingSphere();const mesh=new T.Mesh(g,createGold());mesh.castShadow=true;meshes.push(mesh);});
+  root.updateMatrixWorld(true);const box=new T.Box3().setFromObject(root),center=box.getCenter(new T.Vector3()),size=box.getSize(new T.Vector3()),scale=swingModelSize/Math.max(size.x,size.y,size.z,.001),points=geometricShapes.includes(model)?[]:null,meshes=[];
+  root.traverse(m=>{if(!m.isMesh)return;const g=m.geometry.clone(),p=g.attributes.position,v=new T.Vector3();m.skeleton?.update();for(let i=0;i<p.count;i++){m.getVertexPosition(i,v).applyMatrix4(m.matrixWorld).sub(center).multiplyScalar(scale);p.setXYZ(i,v.x,v.y,v.z);}g.deleteAttribute('skinIndex');g.deleteAttribute('skinWeight');g.computeVertexNormals();g.computeBoundingSphere();const mesh=new T.Mesh(g,createGold(model==='Cube'));mesh.castShadow=true;meshes.push(mesh);});
   if(!meshes.some(mesh=>mesh.geometry.attributes.position.count))throw Error('This file has no mesh geometry.');
   // The glasses and Arch use a specific point on the surface.
   let attachment=null;
@@ -109,13 +122,21 @@ export function createShapeGate({renderer,scene,includeGround=true,shadowLight,o
    gate=new T.Mesh(geometry,marble);gate.position.z=-gateDepth/2;
    gate.name='Shape Gate wheel';
    gate.castShadow=true;gate.receiveShadow=true;
-   const rimGeometry=createGateRimGeometry();
+   const rimGeometry=refineStoneGeometry(createGateRimGeometry());
    prepareMarbleGeometry(rimGeometry,marbleBounds);
    const rim=new T.Mesh(rimGeometry,marble);
-   rim.castShadow=true;rim.receiveShadow=true;gate.add(rim);
+   rim.castShadow=true;rim.receiveShadow=true;rim.customDepthMaterial=stoneDepth;rim.customDistanceMaterial=stoneDistance;gate.add(rim);
    group.add(gate);
   }
+  if(!geometry.userData.erosionReady){
+   const original=geometry;
+   geometry=refineStoneGeometry(original);
+   // Preserve geometry identity across staged aperture swaps.
+   original.copy(geometry);original.parameters=geometry.parameters;geometry.dispose();geometry=original;
+   prepareMarbleGeometry(geometry,marbleBounds);geometry.userData.erosionReady=true;
+  }
   gate.geometry=geometry;
+  gate.customDepthMaterial=stoneDepth;gate.customDistanceMaterial=stoneDistance;
  }
  function showPrepared(prepared,{reset=false,installOpening=true}={}){
   const previous=[...carrier.children];
@@ -355,6 +376,9 @@ export function createShapeGate({renderer,scene,includeGround=true,shadowLight,o
    const top=highestPoint(position);
    mesh.position.set(-top.x,0,-top.z);
   }
+  mesh.material.userData.cubeEdge.value=from==='Cube'
+   ?1-T.MathUtils.smoothstep(progress,0,.08)
+   :to==='Cube'?T.MathUtils.smoothstep(progress,.92,1):0;
   for(const original of source)original.visible=false;
   mesh.visible=true;
  }
@@ -439,8 +463,16 @@ export function createShapeGate({renderer,scene,includeGround=true,shadowLight,o
   }
  }
 
- function advance(dt,camera,speed=1){
+ function updateTimeline(seconds,dt){
+  timelineTime=T.MathUtils.clamp(seconds,0,gateTimelineDuration);
+  stoneAge.value=Math.min(1,timelineTime/weatheringDuration);
+  const palmMaturation=Math.max(0,timelineTime/weatheringDuration-1);
+  gateFloor.advance(dt,palmMaturation);
+ }
+
+ function advance(dt,camera,speed=1,timelineSpeed=speed){
   const previousElapsed=elapsed;
+  updateTimeline(timelineTime+dt*Math.max(0,timelineSpeed),dt*speed);
   elapsed+=dt*speed;
   group.updateWorldMatrix(true,false);
   worldToGate.copy(group.matrixWorld).invert();
@@ -455,5 +487,8 @@ export function createShapeGate({renderer,scene,includeGround=true,shadowLight,o
  }
 
  load('Cube');
- return {group,advance,captureGoldReflection,load,setCycle,resizeFloor:gateFloor.resize,halfSize:gateFloor.halfSize,setPlatformHeight:gateFloor.setPlatformHeight};
+ return {group,advance,captureGoldReflection,load,setCycle,get weathering(){return stoneAge.value;},
+  setWeathering(value){updateTimeline(T.MathUtils.clamp(value,0,1)*weatheringDuration,0);},
+  get timelineTime(){return timelineTime;},seekTimeline(seconds){updateTimeline(seconds,0);},
+  resizeFloor:gateFloor.resize,halfSize:gateFloor.halfSize,setPlatformHeight:gateFloor.setPlatformHeight};
 }

@@ -190,7 +190,31 @@
         </section>
       </div>
       <div id="oasis-controls" class="exposure-dock feather-controls" hidden>
-        <div class="feather-summary"><span>OASIS</span><span id="oasis-count" role="status">9 palms + 7 young</span><button id="oasis-settings-toggle" type="button" aria-expanded="false" aria-controls="oasis-options"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 17h16M8 4v6M16 14v6"/></svg>Settings</button></div>
+        <div id="oasis-summary" class="feather-summary"><span>OASIS</span><span id="oasis-count" role="status">9 palms + 7 young</span><button id="oasis-settings-toggle" type="button" aria-expanded="false" aria-controls="oasis-options"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 17h16M8 4v6M16 14v6"/></svg>Settings</button></div>
+        <div id="palm-growth-controls" class="palm-growth-controls" hidden>
+          <div class="exposure-top">
+            <label for="palm-growth">PALM GROWTH</label>
+            <span id="palm-growth-stage" class="phase"><span></span><span>Seed</span></span>
+            <div class="exposure-playback">
+              <button id="palm-growth-play" type="button" aria-label="Play palm growth" title="Play palm growth"><svg viewBox="0 0 24 24" aria-hidden="true"><path id="palm-growth-icon" d="M8 5l11 7-11 7Z"/></svg></button>
+              <output id="palm-growth-value" for="palm-growth">0%</output>
+            </div>
+          </div>
+          <input id="palm-growth" class="age-range" type="range" min="0" max="100" step="1" value="0">
+          <div class="age-labels"><button type="button" data-palm-stage="0">Seed</button><button type="button" data-palm-stage="23">First shoot</button><button type="button" data-palm-stage="52">Young palm</button><button type="button" data-palm-stage="100">Mature palm</button></div>
+        </div>
+        <div id="gate-timeline-controls" hidden>
+          <div class="exposure-top">
+            <label for="gate-timeline">SHAPE GATE TIMELINE</label>
+            <div class="exposure-playback">
+              <button id="gate-timeline-play" type="button" aria-label="Pause growth timeline" title="Pause growth timeline"><svg viewBox="0 0 24 24" aria-hidden="true"><path id="gate-timeline-icon" d="M8 5v14M16 5v14"/></svg></button>
+              <select id="gate-timeline-speed" aria-label="Growth and weathering speed"><option value="1">1×</option><option value="2">2×</option><option value="5">5×</option><option value="10" selected>10×</option><option value="20">20×</option></select>
+              <output id="gate-timeline-time" for="gate-timeline">0:00</output>
+            </div>
+          </div>
+          <input id="gate-timeline" class="age-range" type="range" min="0" max="600" step="1" value="0">
+          <div class="age-labels"><button type="button" data-gate-time="0">Start</button><button type="button" data-gate-time="110">Weathered</button><button type="button" data-gate-time="600">Mature palms</button></div>
+        </div>
         <section id="oasis-options" class="feather-options" aria-label="Oasis settings" hidden>
           <div class="feather-menu-heading"><h2>Oasis settings</h2><button id="oasis-settings-close" type="button" aria-label="Close oasis settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6"/></svg></button></div>
           <div class="feather-actions"><button id="palm-grow" type="button">Grow palm tree</button><button id="palm-exit" type="button">Feather coat</button></div>

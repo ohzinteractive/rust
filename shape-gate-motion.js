@@ -1,6 +1,7 @@
 export const swingRate = .8;
 export const swingPivotHeight = 15;
 export const swingCenterHeight = 1.5;
+export const swingModelSize = 1.25;
 export const swingLength = swingPivotHeight - swingCenterHeight;
 // Keep the model's depth of travel with the higher pivot.
 export const swingAmplitude = Math.asin(2.12 / swingLength);

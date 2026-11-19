@@ -1,6 +1,8 @@
 import * as T from 'three';
+import {createSlabRoots} from './shape-gate-slab-roots.js';
 import {Reflector} from './vendor/Reflector.js';
 import {marbleNoiseGLSL} from './kelp-marble.js';
+import {createRootedTileGeometry,tileDisplacementGLSL} from './shape-gate-weathering.js';
 
 const polishedMarbleGLSL=`
  ${marbleNoiseGLSL}
@@ -34,9 +36,10 @@ const polishedMarbleGLSL=`
  }
 `;
 
-export function createMarbleBorderMaterial(){
+export function createMarbleBorderMaterial(age={value:0}){
  const material=new T.MeshPhysicalMaterial({name:'Dark marble border',roughness:.28,clearcoat:.3,clearcoatRoughness:.22});
  material.onBeforeCompile=shader=>{
+  shader.uniforms.borderAge=age;
   shader.vertexShader=shader.vertexShader.replace('#include <common>',`#include <common>
    varying vec3 vBorderStone;
   `).replace('#include <begin_vertex>',`#include <begin_vertex>
@@ -44,22 +47,51 @@ export function createMarbleBorderMaterial(){
   `);
   shader.fragmentShader=shader.fragmentShader.replace('#include <common>',`#include <common>
    varying vec3 vBorderStone;
+   uniform float borderAge;
    ${polishedMarbleGLSL}
   `).replace('#include <color_fragment>',`#include <color_fragment>
    float borderAA=clamp(length(fwidth(vBorderStone))*.22,.002,.025);
-   diffuseColor.rgb*=sampleBlackMarble(vBorderStone,borderAA);
+   diffuseColor.rgb*=mix(sampleBlackMarble(vBorderStone,borderAA),vec3(.12,.125,.12),borderAge*.2);
+  `).replace('#include <roughnessmap_fragment>',`#include <roughnessmap_fragment>
+   roughnessFactor=mix(roughnessFactor,.96,borderAge);
+  `).replace('#include <lights_physical_fragment>',`#include <lights_physical_fragment>
+   #ifdef USE_CLEARCOAT
+    material.clearcoat*=1.0-borderAge;
+   #endif
   `);
  };
  return material;
 }
 
-export function createPolishedMarbleFloor(shape,tileSize,halfLength,halfWidth,{resolution=640,updateInterval=0}={}){
- const floor=new Reflector(new T.ShapeGeometry(shape),{
+export function createPolishedMarbleFloor(shape,tileSize,halfLength,halfWidth,{resolution=640,updateInterval=0,age={value:0},rootSites=[],rootHeave={value:0}}={}){
+ const tileOrigin=new T.Vector2(halfLength,halfWidth);
+ const roots=createSlabRoots(age,rootHeave);
+ const heaveGLSL=`#define ROOT_HEAVE
+  uniform float rootHeave;
+  ${tileDisplacementGLSL}`;
+ function createTileGeometry(shape){
+  const geometry=createRootedTileGeometry(shape,tileSize,tileOrigin,rootSites,{collectSupports:true});
+  roots.rebuild(geometry.userData.rootAttachments);
+  geometry.boundingSphere.radius+=2;
+  return geometry;
+ }
+ const floor=new Reflector(createTileGeometry(shape),{
   textureWidth:resolution,textureHeight:resolution,multisample:0,clipBias:.0005
  });
+ floor.add(roots.mesh);
  floor.name='Polished marble tiles';
  floor.rotation.x=-Math.PI/2;
  floor.receiveShadow=true;
+ floor.castShadow=true;
+ floor.userData.createTileGeometry=createTileGeometry;
+ const depthMaterial=new T.MeshDepthMaterial({depthPacking:T.RGBADepthPacking});
+ depthMaterial.onBeforeCompile=shader=>{
+  shader.uniforms.stoneAge=age;
+  shader.uniforms.rootHeave=rootHeave;
+  shader.vertexShader=shader.vertexShader.replace('#include <common>',`#include <common>\n${heaveGLSL}`)
+   .replace('#include <begin_vertex>','#include <begin_vertex>\ntransformed=liftMarbleTile(transformed);');
+ };
+ floor.customDepthMaterial=depthMaterial;
  floor.getRenderTarget().isPlanarReflection=true;
  const planarReflection={value:1};
  const renderPlanarReflection=floor.onBeforeRender;
@@ -85,26 +117,35 @@ export function createPolishedMarbleFloor(shape,tileSize,halfLength,halfWidth,{r
  floor.material.dispose();
  const material=new T.MeshPhysicalMaterial({color:0xffffff,roughness:.24,clearcoat:.32,clearcoatRoughness:.19});
  material.onBeforeCompile=shader=>{
+  shader.uniforms.stoneAge=age;
+  shader.uniforms.rootHeave=rootHeave;
   shader.uniforms.floorMirror=tDiffuse;
   shader.uniforms.floorMirrorMatrix=textureMatrix;
   shader.uniforms.floorPlanarReflection=planarReflection;
   shader.uniforms.floorTileOrigin={value:new T.Vector2(halfLength,halfWidth)};
   shader.uniforms.floorTileSize={value:tileSize};
   shader.vertexShader=shader.vertexShader.replace('#include <common>',`#include <common>
+   ${heaveGLSL}
    uniform mat4 floorMirrorMatrix;
    varying vec4 vFloorMirror;
    varying vec2 vTilePoint;
+   varying float vTileDepth;
+  `).replace('#include <begin_vertex>',`#include <begin_vertex>
+   transformed=liftMarbleTile(transformed);
   `).replace('#include <project_vertex>',`#include <project_vertex>
    vFloorMirror=floorMirrorMatrix*vec4(transformed,1.0);
    vTilePoint=position.xy;
+   vTileDepth=position.z;
   `);
   shader.fragmentShader=shader.fragmentShader.replace('#include <common>',`#include <common>
+   uniform float stoneAge;
    uniform sampler2D floorMirror;
    uniform float floorPlanarReflection;
    uniform vec2 floorTileOrigin;
    uniform vec2 floorTileSize;
    varying vec4 vFloorMirror;
    varying vec2 vTilePoint;
+   varying float vTileDepth;
    ${polishedMarbleGLSL}
   `).replace('#include <color_fragment>',`#include <color_fragment>
    vec2 tileUV=(vTilePoint+floorTileOrigin)/floorTileSize;
@@ -121,11 +162,25 @@ export function createPolishedMarbleFloor(shape,tileSize,halfLength,halfWidth,{r
    float seamDistance=min(edge.x,edge.y);
    float jointAA=clamp(fwidth(seamDistance)*.6,.001,.018);
    float joint=1.0-smoothstep(.004,.004+jointAA,seamDistance);
+   float weatherPatch=marbleFbm(vec3(vTilePoint*3.1,7.3));
+   float chalk=stoneAge*(.12+.2*weatherPatch);
+   stoneColor=mix(stoneColor,darkTile>.5?vec3(.13,.135,.13):vec3(.72,.70,.64),chalk);
    diffuseColor.rgb=mix(stoneColor,vec3(.095,.091,.084),joint);
   `).replace('#include <roughnessmap_fragment>',`#include <roughnessmap_fragment>
-   roughnessFactor=mix(mix(.25,.19,darkTile),.8,joint);
+   roughnessFactor=mix(mix(mix(.25,.19,darkTile),.8,joint),.91+weatherPatch*.07,stoneAge);
+   float underside=smoothstep(.025,.099,-vTileDepth);
+   roughnessFactor=mix(roughnessFactor,.94,underside*.65);
+  `).replace('#include <normal_fragment_maps>',`#include <normal_fragment_maps>
+   vec3 tileNormal=normalize(cross(dFdx(-vViewPosition),dFdy(-vViewPosition)));
+   if(dot(tileNormal,normal)<0.0)tileNormal=-tileNormal;
+   normal=normalize(mix(normal,tileNormal,stoneAge));
+  `).replace('#include <lights_physical_fragment>',`
+   #include <lights_physical_fragment>
+   #ifdef USE_CLEARCOAT
+    material.clearcoat*=1.0-stoneAge;
+   #endif
   `).replace('#include <opaque_fragment>',`
-   if(floorPlanarReflection>.5){
+   if(floorPlanarReflection>.5&&stoneAge<.99&&vTileDepth>-.001){
     vec2 mirrorUV=vFloorMirror.xy/vFloorMirror.w;
     vec2 blur=vec2(mix(1.65,1.2,darkTile)/${resolution.toFixed(1)});
     vec3 reflection=texture2D(floorMirror,mirrorUV).rgb*.40;
@@ -135,7 +190,7 @@ export function createPolishedMarbleFloor(shape,tileSize,halfLength,halfWidth,{r
      texture2D(floorMirror,mirrorUV-vec2(0.0,blur.y)).rgb);
     float facing=clamp(dot(normal,normalize(vViewPosition)),0.0,1.0);
     float sheen=(mix(.16,.145,darkTile)+.23*pow(1.0-facing,3.0))*(1.0-joint*.9);
-    outgoingLight=mix(outgoingLight,reflection,sheen);
+    outgoingLight=mix(outgoingLight,reflection,sheen*pow(1.0-stoneAge,3.0));
    }
    #include <opaque_fragment>
   `);
